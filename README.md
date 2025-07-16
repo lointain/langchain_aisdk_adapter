@@ -31,18 +31,28 @@ We hope this gets you up and running quickly:
 
 ### Installation
 
+**Alpha Release**: This package is available on Test PyPI for early testing and feedback.
+
 ```bash
-# Basic installation
-pip install langchain-aisdk-adapter
+# Basic installation from Test PyPI
+pip install --index-url https://test.pypi.org/simple/ langchain-aisdk-adapter
 
 # With examples (includes LangChain, LangGraph, OpenAI)
-pip install langchain-aisdk-adapter[examples]
+pip install --index-url https://test.pypi.org/simple/ langchain-aisdk-adapter[examples]
 
 # With web framework support (includes FastAPI, Uvicorn)
-pip install langchain-aisdk-adapter[web]
+pip install --index-url https://test.pypi.org/simple/ langchain-aisdk-adapter[web]
 
 # For development (includes testing and linting tools)
-pip install langchain-aisdk-adapter[dev]
+pip install --index-url https://test.pypi.org/simple/ langchain-aisdk-adapter[dev]
+```
+
+**Note**: Since this is an alpha version on Test PyPI, you may need to install dependencies from the main PyPI:
+
+```bash
+# Install dependencies first, then the package
+pip install langchain-core langchain-openai pydantic
+pip install --index-url https://test.pypi.org/simple/ langchain-aisdk-adapter
 ```
 
 ### Basic Usage

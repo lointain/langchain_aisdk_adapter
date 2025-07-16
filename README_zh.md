@@ -28,18 +28,28 @@
 
 ### 安装
 
+**Alpha 版本**: 此包已在 Test PyPI 上发布，供早期测试和反馈使用。
+
 ```bash
-# 基础安装
-pip install langchain-aisdk-adapter
+# 从 Test PyPI 基础安装
+pip install --index-url https://test.pypi.org/simple/ langchain-aisdk-adapter
 
 # 包含示例（包括 LangChain、LangGraph、OpenAI）
-pip install langchain-aisdk-adapter[examples]
+pip install --index-url https://test.pypi.org/simple/ langchain-aisdk-adapter[examples]
 
 # 包含 Web 框架支持（包括 FastAPI、Uvicorn）
-pip install langchain-aisdk-adapter[web]
+pip install --index-url https://test.pypi.org/simple/ langchain-aisdk-adapter[web]
 
 # 开发版本（包括测试和代码检查工具）
-pip install langchain-aisdk-adapter[dev]
+pip install --index-url https://test.pypi.org/simple/ langchain-aisdk-adapter[dev]
+```
+
+**注意**: 由于这是 Test PyPI 上的 alpha 版本，您可能需要先从主 PyPI 安装依赖项：
+
+```bash
+# 先安装依赖项，然后安装包
+pip install langchain-core langchain-openai pydantic
+pip install --index-url https://test.pypi.org/simple/ langchain-aisdk-adapter
 ```
 
 ### 基础用法
