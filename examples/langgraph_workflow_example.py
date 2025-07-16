@@ -24,7 +24,7 @@ except ImportError:
     LANGGRAPH_AVAILABLE = False
     print("Warning: LangGraph not available. Install with: pip install langgraph")
 
-from langchain_aisdk_adapter import AISDKAdapter, factory
+from langchain_aisdk_adapter import LangChainAdapter, factory
 
 
 def setup_environment():
@@ -166,7 +166,7 @@ async def agent_executor_example():
         part_stats = {}
         try:
             # Use agent_executor directly with astream
-            async for part in AISDKAdapter.astream(agent_executor.astream({"input": query, "chat_history": []})):
+            async for part in LangChainAdapter.to_data_stream_response(agent_executor.astream({"input": query, "chat_history": []})):
                 # Parse part type and update statistics
                 if ':' in part:
                     part_type = part.split(':', 1)[0]
@@ -378,8 +378,8 @@ if LANGGRAPH_AVAILABLE:
                 print("Assistant: ", end="")
                 
                 part_stats = {}
-                # Use AISDKAdapter.astream to process the entire LangGraph workflow stream
-                async for part in AISDKAdapter.astream(app.astream(initial_state)):
+                # Use LangChainAdapter.to_data_stream_response to process the entire LangGraph workflow stream
+                async for part in LangChainAdapter.to_data_stream_response(app.astream_events(initial_state, version="v1")):
                     # Parse part type and update statistics
                     if ':' in part:
                         part_type = part.split(':', 1)[0]
@@ -388,20 +388,25 @@ if LANGGRAPH_AVAILABLE:
                         # Only show non-text protocols for diagnosis
                         if not part.startswith('0:'):
                             print(f"[Protocol {part_type}]: {part.strip()}")
+                        else:
+                            # Show text content
+                            text_content = part[2:].strip('"\n')
+                            if text_content:
+                                print(text_content, end="", flush=True)
                     else:
                         # Show any non-protocol parts
                         if part.strip():
                             print(f"[Raw]: {part}")
-                
+                            
                 print("\n")
                 print("Workflow Statistics:")
                 for part_type, count in sorted(part_stats.items()):
                     print(f"  Type {part_type}: {count} parts")
                 
             except Exception as e:
-                print(f"Error in workflow: {e}")
-            
-            print("-" * 50)
+                print(f"\nError in workflow: {e}")
+        
+        print("-" * 50)
 
 
 async def main():

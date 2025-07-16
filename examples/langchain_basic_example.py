@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from langchain_aisdk_adapter import AISDKAdapter, factory
+from langchain_aisdk_adapter import LangChainAdapter, factory
 
 
 def setup_environment():
@@ -62,7 +62,7 @@ async def basic_streaming_example():
     part_stats = {}
     
     # Stream with AI SDK protocol
-    async for part in AISDKAdapter.astream(llm.astream(messages)):
+    async for part in LangChainAdapter.to_data_stream_response(llm.astream(messages)):
         # Parse part type
         if ':' in part:
             part_type = part.split(':', 1)[0]
@@ -134,7 +134,7 @@ async def conversation_example():
     
     response_content = ""
     part_stats_1 = {}
-    async for part in AISDKAdapter.astream(llm.astream(conversation)):
+    async for part in LangChainAdapter.to_data_stream_response(llm.astream(conversation)):
         # Parse part type and update statistics
         if ':' in part:
             part_type = part.split(':', 1)[0]
@@ -167,7 +167,7 @@ async def conversation_example():
     print("Assistant: ", end="")
     
     part_stats_2 = {}
-    async for part in AISDKAdapter.astream(llm.astream(conversation)):
+    async for part in LangChainAdapter.to_data_stream_response(llm.astream(conversation)):
         # Parse part type and update statistics
         if ':' in part:
             part_type = part.split(':', 1)[0]

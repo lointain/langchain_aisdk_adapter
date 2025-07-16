@@ -6,7 +6,8 @@ A Python package that converts LangChain/LangGraph event streams to AI SDK UI St
 __version__ = "0.0.1a1"
 
 # Import components from modules
-from .adapter import AISDKAdapter
+from .adapter import LangChainAdapter
+from .config import AdapterConfig, ThreadSafeAdapterConfig, default_config, safe_config
 from .emitter import AISDKPartEmitter
 from .factory import (
     AISDKFactory,
@@ -32,7 +33,11 @@ from .factory import (
 
 __all__ = [
     "__version__",
-    "AISDKAdapter",
+    "LangChainAdapter",
+    "AdapterConfig",
+    "ThreadSafeAdapterConfig",
+    "default_config",
+    "safe_config",
     "AISDKPartEmitter",
     # Factory class and convenience instance
     "AISDKFactory",

@@ -19,7 +19,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 from langchain.agents import create_openai_functions_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_aisdk_adapter import AISDKAdapter
+from langchain_aisdk_adapter import LangChainAdapter
 
 # Load environment variables
 load_dotenv()
@@ -118,13 +118,13 @@ async def test_step_protocols_ef():
         print("Creating agent executor with multi-step workflow...")
         
         # Create adapter and stream
-        adapter = AISDKAdapter()
+        adapter = LangChainAdapter()
         protocol_parts = []
         step_finish_parts = []  # Protocol e
         step_start_parts = []   # Protocol f
         
         print("\nStreaming agent response with step tracking:")
-        async for part in adapter.astream(agent_executor.astream({"input": test_input})):
+        async for part in adapter.to_data_stream_response(agent_executor.astream({"input": test_input})):
             protocol_parts.append(part)
             print(f"Protocol: {repr(part)}")
             

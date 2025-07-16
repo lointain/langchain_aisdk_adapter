@@ -20,7 +20,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 from langchain.agents import create_openai_functions_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_aisdk_adapter import AISDKAdapter
+from langchain_aisdk_adapter import LangChainAdapter
 
 # Load environment variables
 load_dotenv()
@@ -153,7 +153,7 @@ async def test_tool_protocols_9ab():
         print(f"LLM type: {type(llm)}")
         
         # Create adapter and stream
-        adapter = AISDKAdapter()
+        adapter = LangChainAdapter()
         protocol_parts = []
         tool_call_parts = []  # Protocol 9
         tool_result_parts = []  # Protocol a
@@ -177,7 +177,7 @@ async def test_tool_protocols_9ab():
         print("\nNow processing through adapter:")
         
         # Now process through adapter
-        async for part in adapter.astream(llm.astream(messages)):
+        async for part in adapter.to_data_stream_response(llm.astream(messages)):
             protocol_parts.append(part)
             print(f"Protocol: {repr(part)}")
             

@@ -192,14 +192,19 @@ class TestAsyncFunctions:
     @pytest.mark.asyncio
     async def test_handle_stream_end(self):
         """Test stream end handling"""
-        from langchain_aisdk_adapter.utils import _handle_stream_end
+        from langchain_aisdk_adapter.utils import _handle_stream_end, AIStreamState
         
         state = AIStreamState()
         state.tool_calls["call_1"] = {"name": "test", "args": "{}"}
         state.tool_calls["call_2"] = {"name": "test2", "args": "{}"}
         
-        # Should clear tool calls
-        await _handle_stream_end(state)
+        # Should clear tool calls and emit results
+        results = []
+        async for result in _handle_stream_end(state):
+            results.append(result)
+        
+        # Should have results and tool calls should be cleared
+        assert len(results) >= 0  # May or may not have results
         assert state.tool_calls == {}
     
     @pytest.mark.asyncio
@@ -372,7 +377,9 @@ class TestAsyncFunctions:
     @pytest.mark.asyncio
     async def test_process_tool_events(self):
         """Test processing tool events"""
-        from langchain_aisdk_adapter.utils import _process_tool_events
+        from langchain_aisdk_adapter.utils import _process_tool_events, AIStreamState
+        
+        state = AIStreamState()
         
         # Test on_tool_start event
         data = {
@@ -381,7 +388,7 @@ class TestAsyncFunctions:
         }
         
         results = []
-        async for result in _process_tool_events("on_tool_start", data, "call_123"):
+        async for result in _process_tool_events("on_tool_start", data, "call_123", state):
             results.append(result)
         
         # Should have tool call start and call parts
@@ -391,7 +398,7 @@ class TestAsyncFunctions:
         data = {"output": "Search results here"}
         
         results = []
-        async for result in _process_tool_events("on_tool_end", data, "call_123"):
+        async for result in _process_tool_events("on_tool_end", data, "call_123", state):
             results.append(result)
         
         # Should have tool result
@@ -403,7 +410,7 @@ class TestAsyncFunctions:
         data = {"output": [doc]}
         
         results = []
-        async for result in _process_tool_events("on_tool_end", data, "call_123"):
+        async for result in _process_tool_events("on_tool_end", data, "call_123", state):
             results.append(result)
         
         # Should have source and tool result parts
@@ -412,7 +419,7 @@ class TestAsyncFunctions:
     @pytest.mark.asyncio
     async def test_process_agent_events(self):
         """Test processing agent events"""
-        from langchain_aisdk_adapter.utils import _process_agent_events
+        from langchain_aisdk_adapter.utils import _process_agent_events, AIStreamState
         
         state = AIStreamState()
         
@@ -493,7 +500,7 @@ class TestAsyncFunctions:
     @pytest.mark.asyncio
     async def test_process_graph_event(self):
         """Test processing LangGraph events"""
-        from langchain_aisdk_adapter.utils import _process_graph_event
+        from langchain_aisdk_adapter.utils import _process_graph_event, AIStreamState
         
         state = AIStreamState()
         

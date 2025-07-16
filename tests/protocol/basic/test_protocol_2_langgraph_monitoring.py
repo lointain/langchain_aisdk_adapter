@@ -14,7 +14,7 @@ import json
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from langchain_aisdk_adapter import AISDKAdapter
+from langchain_aisdk_adapter import LangChainAdapter
 
 try:
     from langgraph.graph import StateGraph, END
@@ -119,7 +119,7 @@ async def test_langgraph_monitoring_protocol_2():
         print("Starting LangGraph workflow with monitoring...")
         
         # Create adapter
-        adapter = AISDKAdapter()
+        adapter = LangChainAdapter()
         
         # Stream with events to capture node monitoring
         protocol_parts = []
@@ -137,7 +137,7 @@ async def test_langgraph_monitoring_protocol_2():
                 yield event
         
         # Process through adapter with proper async generator
-        async for part in adapter.astream(event_generator()):
+        async for part in adapter.to_data_stream_response(event_generator()):
             protocol_parts.append(part)
             print(f"Protocol: {repr(part)}")
             

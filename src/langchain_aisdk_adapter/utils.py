@@ -20,13 +20,15 @@ from .factory import (
 
 # State management
 class AIStreamState:
-    """State management for AI SDK stream processing"""
+    """State management for AI SDK streaming"""
     
     def __init__(self):
-        """Initialize stream state"""
-        self.tool_calls: Dict[str, Dict[str, Any]] = {}  # Track ongoing tool calls
-        self.text_sent: bool = False  # Track if any text content has been sent
-        self.reasoning_sent: bool = False  # Track if reasoning content has been sent
+        self.text_sent = False
+        self.reasoning_sent = False
+        self.tool_calls = {}  # tool_call_id -> {name, args}
+        self.tool_call_counter = 0
+        self.active_steps = set()  # Track active step IDs
+        self.config = None  # Will be set by adapter
 
 
 # Stream chunk type detection functions
@@ -66,8 +68,8 @@ async def _handle_stream_end(state: AIStreamState) -> AsyncGenerator[str, None]:
         print(f"Warning: Stream ended with {len(state.tool_calls)} incomplete tool calls")
         state.tool_calls.clear()
     
-    # Send finish message if any text was sent during the stream
-    if state.text_sent:
+    # Send finish message if any text was sent during the stream (and if enabled)
+    if state.text_sent and state.config and state.config.is_protocol_enabled('d'):
         from .factory import create_finish_message_part
         yield create_finish_message_part(finish_reason="stop").ai_sdk_part_content
 
@@ -86,33 +88,35 @@ async def _process_ai_message_chunk(
     Yields:
         AI SDK protocol compliant strings
     """
-    # Process reasoning content (for models like DeepSeek R1)
-    if hasattr(chunk, 'response_metadata') and chunk.response_metadata:
-        # Check for reasoning_content (DeepSeek R1 format)
-        reasoning = chunk.response_metadata.get('reasoning_content')
-        if not reasoning:
-            # Fallback to reasoning field
-            reasoning = chunk.response_metadata.get('reasoning')
-        if reasoning and not state.reasoning_sent:
-            from .factory import create_reasoning_part
-            yield create_reasoning_part(reasoning).ai_sdk_part_content
-            state.reasoning_sent = True
+    # Process reasoning content (for models like DeepSeek R1) - only if enabled
+    if state.config and state.config.is_protocol_enabled('g'):
+        if hasattr(chunk, 'response_metadata') and chunk.response_metadata:
+            # Check for reasoning_content (DeepSeek R1 format)
+            reasoning = chunk.response_metadata.get('reasoning_content')
+            if not reasoning:
+                # Fallback to reasoning field
+                reasoning = chunk.response_metadata.get('reasoning')
+            if reasoning and not state.reasoning_sent:
+                from .factory import create_reasoning_part
+                yield create_reasoning_part(reasoning).ai_sdk_part_content
+                state.reasoning_sent = True
+        
+        # Check for reasoning in additional_kwargs
+        if hasattr(chunk, 'additional_kwargs') and chunk.additional_kwargs:
+            # Check for reasoning_content (DeepSeek R1 format)
+            reasoning = chunk.additional_kwargs.get('reasoning_content')
+            if not reasoning:
+                # Fallback to reasoning field
+                reasoning = chunk.additional_kwargs.get('reasoning')
+            if reasoning and not state.reasoning_sent:
+                from .factory import create_reasoning_part
+                yield create_reasoning_part(reasoning).ai_sdk_part_content
+                state.reasoning_sent = True
     
-    # Check for reasoning in additional_kwargs
-    if hasattr(chunk, 'additional_kwargs') and chunk.additional_kwargs:
-        # Check for reasoning_content (DeepSeek R1 format)
-        reasoning = chunk.additional_kwargs.get('reasoning_content')
-        if not reasoning:
-            # Fallback to reasoning field
-            reasoning = chunk.additional_kwargs.get('reasoning')
-        if reasoning and not state.reasoning_sent:
-            from .factory import create_reasoning_part
-            yield create_reasoning_part(reasoning).ai_sdk_part_content
-            state.reasoning_sent = True
-    
-    # Process text content
+    # Process text content - only if enabled
     if isinstance(chunk.content, str) and chunk.content:
-        yield create_text_part(chunk.content).ai_sdk_part_content
+        if not state.config or state.config.is_protocol_enabled('0'):
+            yield create_text_part(chunk.content).ai_sdk_part_content
         state.text_sent = True
 
     # Process tool calls
@@ -153,14 +157,17 @@ async def _process_tool_calls_from_chunk(
             
         if tool_call_id not in state.tool_calls:
             state.tool_calls[tool_call_id] = {'name': tool_name, 'args': ""}
-            # Send tool call streaming start part when first encountered
-            yield create_tool_call_streaming_start_part(tool_call_id, tool_name).ai_sdk_part_content
+            # Send tool call streaming start part when first encountered (if enabled)
+            if not state.config or state.config.is_protocol_enabled('b'):
+                yield create_tool_call_streaming_start_part(tool_call_id, tool_name).ai_sdk_part_content
 
         # Accumulate tool parameter deltas
         if 'args' in tc_chunk and tc_chunk['args'] is not None:
             state.tool_calls[tool_call_id]['args'] += tc_chunk['args']
-            # Optional: send tool call delta
-            # yield create_tool_call_delta_part(tool_call_id, tc_chunk['args']).ai_sdk_part_content
+            # Send tool call delta (if enabled)
+            if state.config and state.config.is_protocol_enabled('c'):
+                from .factory import create_tool_call_delta_part
+                yield create_tool_call_delta_part(tool_call_id, tc_chunk['args']).ai_sdk_part_content
     
     # This function is now a proper async generator that can yield values
 
@@ -176,14 +183,16 @@ async def _emit_completed_tool_calls(
     Yields:
         Complete tool call AI SDK protocol strings
     """
-    for tool_call_id, tool_info in state.tool_calls.items():
-        try:
-            import json
-            args = json.loads(tool_info['args']) if tool_info['args'] else {}
-            yield create_tool_call_part(tool_call_id, tool_info['name'], args).ai_sdk_part_content
-        except json.JSONDecodeError:
-            print(f"Warning: Failed to parse tool call args for {tool_call_id}: {tool_info['args']}")
-            yield create_tool_call_part(tool_call_id, tool_info['name'], {}).ai_sdk_part_content
+    # Only emit tool calls if enabled
+    if not state.config or state.config.is_protocol_enabled('9'):
+        for tool_call_id, tool_info in state.tool_calls.items():
+            try:
+                import json
+                args = json.loads(tool_info['args']) if tool_info['args'] else {}
+                yield create_tool_call_part(tool_call_id, tool_info['name'], args).ai_sdk_part_content
+            except json.JSONDecodeError:
+                print(f"Warning: Failed to parse tool call args for {tool_call_id}: {tool_info['args']}")
+                yield create_tool_call_part(tool_call_id, tool_info['name'], {}).ai_sdk_part_content
 
 
 # LangGraph event processing
@@ -206,14 +215,20 @@ async def _process_graph_event(
     data = chunk.get('data', {})
     current_id = chunk.get('run_id', '')
     
+    # Generate step start for major workflow components (if enabled)
+    if event == 'on_chain_start' and _is_major_workflow_component(name, tags):
+        if not state.config or state.config.is_protocol_enabled('f'):
+            yield create_start_step_part(current_id).ai_sdk_part_content
+        state.active_steps.add(current_id)
+    
     # Process LLM events
     if event in ['on_llm_start', 'on_llm_stream', 'on_llm_end']:
         async for llm_part in _process_llm_events(event, data, state):
             yield llm_part
     
-    # Process tool events
+    # Process tool events with proper step management
     elif event in ['on_tool_start', 'on_tool_end']:
-        async for tool_part in _process_tool_events(event, data, current_id):
+        async for tool_part in _process_tool_events(event, data, current_id, state):
             yield tool_part
     
     # Process agent events
@@ -225,6 +240,12 @@ async def _process_graph_event(
     elif event in ['on_chain_start', 'on_chain_end', 'on_chain_error']:
         async for custom_part in _process_custom_events(event, name, tags, data, current_id):
             yield custom_part
+    
+    # Generate step finish for major workflow components (if enabled)
+    if event == 'on_chain_end' and current_id in state.active_steps:
+        if not state.config or state.config.is_protocol_enabled('e'):
+            yield create_finish_step_part("stop").ai_sdk_part_content
+        state.active_steps.remove(current_id)
 
 
 async def _process_llm_events(
@@ -261,7 +282,8 @@ async def _process_llm_events(
 async def _process_tool_events(
     event: str, 
     data: Dict[str, Any], 
-    current_id: str
+    current_id: str,
+    state: AIStreamState
 ) -> AsyncGenerator[str, None]:
     """Process tool start and end events
     
@@ -269,30 +291,47 @@ async def _process_tool_events(
         event: Event type
         data: Event data
         current_id: Current run ID
+        state: Stream state
         
     Yields:
         AI SDK protocol strings
     """
     if event == "on_tool_start":
-        tool_name = data["tool_name"]
-        tool_args = data["input"]  # LangChain tool input is the arguments
+        tool_name = data.get("name", data.get("tool_name", "unknown_tool"))
+        tool_args = data.get("input", {})
         tool_call_id = current_id
         
-        yield create_tool_call_streaming_start_part(tool_call_id, tool_name).ai_sdk_part_content
-        yield create_tool_call_part(tool_call_id, tool_name, tool_args).ai_sdk_part_content
+        # Generate step start for tool execution (if enabled)
+        if not state.config or state.config.is_protocol_enabled('f'):
+            yield create_start_step_part(tool_call_id).ai_sdk_part_content
+        state.active_steps.add(tool_call_id)
+        
+        # Generate tool call protocol (9:) (if enabled)
+        if not state.config or state.config.is_protocol_enabled('9'):
+            yield create_tool_call_part(tool_call_id, tool_name, tool_args).ai_sdk_part_content
+        
+        # Generate tool call start protocol (b:) (if enabled)
+        if not state.config or state.config.is_protocol_enabled('b'):
+            yield create_tool_call_start_part(tool_call_id, tool_name).ai_sdk_part_content
 
     elif event == "on_tool_end":
-        tool_output = data["output"]
-        tool_call_id = current_id  # on_tool_end run_id is the tool_call_id
-        tool_name = data.get("tool_name", "unknown_tool")
-
-        # Handle Document object lists
-        if _is_document_list(tool_output):
-            async for source_part in _process_document_list(tool_output):
-                yield source_part
-            yield create_tool_result_part(tool_call_id, "Documents retrieved.").ai_sdk_part_content
-        else:
-            yield create_tool_result_part(tool_call_id, tool_output).ai_sdk_part_content
+        tool_output = data.get("output", "")
+        tool_call_id = current_id
+        
+        # Generate tool result protocol (a:) (if enabled)
+        if not state.config or state.config.is_protocol_enabled('a'):
+            if _is_document_list(tool_output):
+                async for source_part in _process_document_list(tool_output):
+                    yield source_part
+                yield create_tool_result_part(tool_call_id, "Documents retrieved.").ai_sdk_part_content
+            else:
+                yield create_tool_result_part(tool_call_id, str(tool_output)).ai_sdk_part_content
+        
+        # Generate step finish for tool execution (if enabled)
+        if tool_call_id in state.active_steps:
+            if not state.config or state.config.is_protocol_enabled('e'):
+                yield create_finish_step_part("stop").ai_sdk_part_content
+            state.active_steps.remove(tool_call_id)
 
 
 async def _process_agent_events(
@@ -312,13 +351,14 @@ async def _process_agent_events(
     """
     if event == "on_agent_action":
         thought = data["log"]
-        if thought:
+        if thought and (not state.config or state.config.is_protocol_enabled('g')):
             yield create_reasoning_part(thought).ai_sdk_part_content
 
     elif event == "on_agent_finish":
         final_answer = data["output"]
         if final_answer and isinstance(final_answer, str):
-            yield create_text_part(final_answer).ai_sdk_part_content
+            if not state.config or state.config.is_protocol_enabled('0'):
+                yield create_text_part(final_answer).ai_sdk_part_content
             state.text_sent = True
 
 
@@ -469,3 +509,67 @@ def _extract_document_title(document: Document) -> str:
     if len(content) > 50:
         return content[:50] + "..."
     return content
+
+
+def _is_major_workflow_component(name: str, tags: List[str]) -> bool:
+    """Check if component is a major workflow component that should have step tracking"""
+    # Extended list of major workflow components that should have step tracking
+    major_components = [
+        'AgentExecutor', 'ReActAgent', 'PlanAndExecute',
+        'ConversationalRetrievalChain', 'RetrievalQA', 'ConversationChain',
+        'LLMChain', 'SequentialChain', 'SimpleSequentialChain',
+        'RouterChain', 'MultiPromptChain', 'MultiRetrievalQAChain',
+        'SQLDatabaseChain', 'APIChain', 'OpenAPIEndpointChain',
+        'LLMMathChain', 'TransformChain', 'LLMRequestsChain',
+        'ChatAgent', 'ZeroShotAgent', 'ReActDocstoreAgent',
+        'SelfAskWithSearchAgent', 'ConversationalAgent',
+        'StructuredChatAgent', 'OpenAIFunctionsAgent',
+        'XMLAgent', 'JSONChatAgent'
+    ]
+    
+    # Check for LangGraph specific components and tags
+    langgraph_names = ['LangGraph', 'CompiledGraph', 'StateGraph', 'MessageGraph']
+    is_langgraph_component = (
+        name in langgraph_names or
+        any(tag.startswith('graph:step:') for tag in tags) or
+        any(tag in ['langgraph', 'graph', 'graph:node'] for tag in tags)
+    )
+    
+    # Check for agent-related tags
+    is_agent_component = any(tag in ['agent', 'chain', 'executor', 'workflow', 'multi_agent'] for tag in tags)
+    
+    return (name in major_components or 
+            is_langgraph_component or 
+            is_agent_component)
+
+
+def create_start_step_part(step_id: str):
+    """Create step start part using proper factory function"""
+    from .factory import factory
+    return factory.start_step(step_id)
+
+
+def create_finish_step_part(finish_reason: str):
+    """Create step finish part using proper factory function"""
+    from .factory import factory
+    return factory.finish_step(finish_reason)
+
+
+def create_tool_call_start_part(tool_call_id: str, tool_name: str = "unknown_tool"):
+    """Create tool call start part using proper factory function
+    
+    Args:
+        tool_call_id: Unique identifier for the tool call
+        tool_name: Name of the tool being called, defaults to "unknown_tool"
+    
+    Returns:
+        AISDKPartEmitter for tool call start part
+    """
+    from .factory import factory
+    return factory.tool_call_start(tool_call_id, tool_name)
+
+
+def create_tool_call_streaming_start_part(tool_call_id: str, tool_name: str):
+    """Create tool call streaming start part using proper factory function"""
+    from .factory import factory
+    return factory.tool_call_start(tool_call_id, tool_name)

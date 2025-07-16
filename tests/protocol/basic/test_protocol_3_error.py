@@ -13,7 +13,7 @@ import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from langchain_aisdk_adapter import AISDKAdapter
+from langchain_aisdk_adapter import LangChainAdapter
 
 # Load environment variables
 load_dotenv()
@@ -39,14 +39,14 @@ async def test_error_protocol_3():
         messages = [HumanMessage(content="Hello")]
         
         # Create adapter and try to stream
-        adapter = AISDKAdapter()
+        adapter = LangChainAdapter()
         protocol_parts = []
         error_parts = []
         
         print("Attempting to stream with invalid API key...")
         
         try:
-            async for part in adapter.astream(llm_invalid_key.astream(messages)):
+            async for part in adapter.to_data_stream_response(llm_invalid_key.astream(messages)):
                 protocol_parts.append(part)
                 print(f"Protocol: {repr(part)}")
                 
@@ -104,14 +104,14 @@ async def test_error_protocol_3():
             messages = [HumanMessage(content="Hello")]
             
             # Create adapter and try to stream
-            adapter = AISDKAdapter()
+            adapter = LangChainAdapter()
             protocol_parts = []
             error_parts = []
             
             print("Attempting to stream with invalid model name...")
             
             try:
-                async for part in adapter.astream(llm_invalid_model.astream(messages)):
+                async for part in adapter.to_data_stream_response(llm_invalid_model.astream(messages)):
                     protocol_parts.append(part)
                     print(f"Protocol: {repr(part)}")
                     

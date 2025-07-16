@@ -23,7 +23,8 @@ keywords = [
     "adapter",
     "langgraph",
     "ai",
-    "llm"
+    "llm",
+    "fastapi"
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -47,6 +48,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Development dependencies (testing, linting, formatting)
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
@@ -57,22 +59,41 @@ dev = [
     "mypy>=1.0.0",
     "pre-commit>=3.0.0"
 ]
+# Testing only dependencies
 test = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0"
 ]
+# LangChain/LangGraph integration examples
 examples = [
     "langchain>=0.1.0",
     "langgraph>=0.1.0",
     "langchain-openai>=0.1.0",
     "openai>=1.0.0"
 ]
+# Web framework examples (FastAPI, etc.)
+web = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "langchain>=0.1.0",
+    "langchain-openai>=0.1.0",
+    "openai>=1.0.0",
+]
+# Documentation dependencies
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocstrings[python]>=0.22.0"
+]
+# All optional dependencies combined
 all = [
     "langchain>=0.1.0",
     "langgraph>=0.1.0",
     "langchain-openai>=0.1.0",
     "openai>=1.0.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
@@ -80,9 +101,7 @@ all = [
     "isort>=5.12.0",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
-    "pre-commit>=3.0.0"
-]
-docs = [
+    "pre-commit>=3.0.0",
     "mkdocs>=1.5.0",
     "mkdocs-material>=9.0.0",
     "mkdocstrings[python]>=0.22.0"

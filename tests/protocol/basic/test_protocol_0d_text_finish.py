@@ -16,7 +16,7 @@ import json
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from langchain_aisdk_adapter import AISDKAdapter
+from langchain_aisdk_adapter import LangChainAdapter
 
 # Load environment variables
 load_dotenv()
@@ -53,13 +53,13 @@ async def test_text_and_finish_protocols_0d():
         print("Calling DeepSeek API with streaming...")
         
         # Create adapter and stream
-        adapter = AISDKAdapter()
+        adapter = LangChainAdapter()
         protocol_parts = []
         text_parts = []
         finish_parts = []
         
         print("\nStreaming response:")
-        async for part in adapter.astream(llm.astream(messages)):
+        async for part in adapter.to_data_stream_response(llm.astream(messages)):
             protocol_parts.append(part)
             print(f"Protocol: {repr(part)}")
             
