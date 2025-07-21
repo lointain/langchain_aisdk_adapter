@@ -140,12 +140,47 @@ These protocols are generated automatically from LangChain/LangGraph events with
 - Any streaming text from language models
 
 #### **`2:` (Data Protocol)**
-**Trigger Condition**: Generated for structured data and metadata
+**Trigger Condition**: Generated for structured data, metadata, and lifecycle events
 **Format**: `2:[{"key":"value"}]`
 **When it occurs**:
-- LangGraph node metadata and intermediate results
+- **Agent executor lifecycle events** (agent-executor-start, agent-executor-end)
+- **LangGraph node lifecycle events** (node-start, node-end, node-error)
+- **LangGraph workflow lifecycle events** (workflow start/end)
 - Tool execution metadata
 - Custom data from LangChain callbacks
+- Any structured data that needs to be transmitted
+
+**Detailed Format Examples**:
+
+**Agent Executor Events**:
+```
+# Agent executor start
+2:[{"custom_type":"agent-executor-start","name":"AgentExecutor","inputs":{"input":"user query"}}]
+
+# Agent executor end
+2:[{"custom_type":"agent-executor-end","output":"final response"}]
+```
+
+**LangGraph Node Events**:
+```
+# Node start
+2:[{"custom_type":"node-start","node_id":"run_123","name":"NodeName","node_type":"action"}]
+
+# Node end
+2:[{"custom_type":"node-end","node_id":"run_123"}]
+
+# Node error
+2:[{"custom_type":"node-error","node_id":"run_123","error":"error message"}]
+```
+
+**LangGraph Workflow Events**:
+```
+# Workflow start
+2:[{"custom_type":"workflow-start","workflow_id":"workflow_123","name":"WorkflowName"}]
+
+# Workflow end
+2:[{"custom_type":"workflow-end","workflow_id":"workflow_123","result":"workflow output"}]
+```
 
 #### **`9:` (Tool Call Protocol)**
 **Trigger Condition**: Generated when tools are invoked
@@ -179,29 +214,32 @@ These protocols are generated automatically from LangChain/LangGraph events with
 - End of LangGraph node execution
 - Contains usage statistics when available
 
-#### **`e:` (Finish Step Protocol)** 🔄 **Enhanced Support**
-**Trigger Condition**: Generated when major workflow components complete execution
+#### **`e:` (Finish Step Protocol)** 🎯 **Agent Reasoning Steps Only**
+**Trigger Condition**: Generated when Agent reasoning steps complete
 **Format**: `e:{"stepId":"step_123","finishReason":"completed"}`
 **When it occurs**:
-- **LangGraph workflow step completion** (primary use case)
-- **LangChain agent execution** (AgentExecutor, ReActAgent, ChatAgent, etc.)
-- **Chain-based workflows** (LLMChain, SequentialChain, RouterChain, etc.)
-- **Components with specific tags** (agent, chain, executor, workflow, multi_agent)
-- End of multi-step processes and reasoning steps
+- **Agent reasoning step completion** (primary use case)
+- **Individual agent actions and decisions**
+- **Agent thought processes and planning steps**
+- **NOT for lifecycle events** (use `2:` protocol instead)
 
-#### **`f:` (Start Step Protocol)** 🔄 **Enhanced Support**
-**Trigger Condition**: Generated when major workflow components begin execution
+> ⚠️ **Important**: This protocol is specifically for Agent reasoning steps, following AI SDK standards. Agent executor lifecycle events (start/end) use the `2:` protocol with `custom_type` fields.
+
+#### **`f:` (Start Step Protocol)** 🎯 **Agent Reasoning Steps Only**
+**Trigger Condition**: Generated when Agent reasoning steps begin
 **Format**: `f:{"stepId":"step_123","stepType":"agent_action"}`
 **When it occurs**:
-- **LangGraph workflow step initiation** (primary use case)
-- **LangChain agent execution** (AgentExecutor, ReActAgent, ChatAgent, etc.)
-- **Chain-based workflows** (LLMChain, SequentialChain, RouterChain, etc.)
-- **LangGraph components** (LangGraph, CompiledGraph, StateGraph, etc.)
-- **Components with specific tags** (agent, chain, executor, workflow, multi_agent, langgraph, graph)
-- Beginning of multi-step processes and reasoning steps
+- **Agent reasoning step initiation** (primary use case)
+- **Individual agent actions and decisions**
+- **Agent thought processes and planning steps**
+- **NOT for lifecycle events** (use `2:` protocol instead)
+
+> ⚠️ **Important**: This protocol is specifically for Agent reasoning steps, following AI SDK standards. Agent executor lifecycle events (start/end) use the `2:` protocol with `custom_type` fields.
 
 > 💡 **Important Notes**: 
-> - Protocols `d:`, `e:`, and `f:` are **LangGraph-specific** and will not appear in basic LangChain streams
+> - Protocol `d:` is **LangGraph-specific** and will not appear in basic LangChain streams
+> - Protocols `e:` and `f:` are for **Agent reasoning steps only**, following AI SDK standards
+> - **Lifecycle events** (agent executor, LangGraph nodes) use the `2:` protocol with `custom_type` fields
 > - All automatically supported protocols can be individually enabled or disabled through `AdapterConfig`
 > - The exact format may vary based on the underlying LangChain/LangGraph event structure
 

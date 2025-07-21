@@ -27,7 +27,6 @@ class AIStreamState:
         self.reasoning_sent = False
         self.tool_calls = {}  # tool_call_id -> {name, args}
         self.tool_call_counter = 0
-        self.active_steps = set()  # Track active step IDs
         self.config = None  # Will be set by adapter
 
 
@@ -215,12 +214,6 @@ async def _process_graph_event(
     data = chunk.get('data', {})
     current_id = chunk.get('run_id', '')
     
-    # Generate step start for major workflow components (if enabled)
-    if event == 'on_chain_start' and _is_major_workflow_component(name, tags):
-        if not state.config or state.config.is_protocol_enabled('f'):
-            yield create_start_step_part(current_id).ai_sdk_part_content
-        state.active_steps.add(current_id)
-    
     # Process LLM events
     if event in ['on_llm_start', 'on_llm_stream', 'on_llm_end']:
         async for llm_part in _process_llm_events(event, data, state):
@@ -240,12 +233,6 @@ async def _process_graph_event(
     elif event in ['on_chain_start', 'on_chain_end', 'on_chain_error']:
         async for custom_part in _process_custom_events(event, name, tags, data, current_id):
             yield custom_part
-    
-    # Generate step finish for major workflow components (if enabled)
-    if event == 'on_chain_end' and current_id in state.active_steps:
-        if not state.config or state.config.is_protocol_enabled('e'):
-            yield create_finish_step_part("stop").ai_sdk_part_content
-        state.active_steps.remove(current_id)
 
 
 async def _process_llm_events(
@@ -301,11 +288,6 @@ async def _process_tool_events(
         tool_args = data.get("input", {})
         tool_call_id = current_id
         
-        # Generate step start for tool execution (if enabled)
-        if not state.config or state.config.is_protocol_enabled('f'):
-            yield create_start_step_part(tool_call_id).ai_sdk_part_content
-        state.active_steps.add(tool_call_id)
-        
         # Generate tool call protocol (9:) (if enabled)
         if not state.config or state.config.is_protocol_enabled('9'):
             yield create_tool_call_part(tool_call_id, tool_name, tool_args).ai_sdk_part_content
@@ -326,12 +308,6 @@ async def _process_tool_events(
                 yield create_tool_result_part(tool_call_id, "Documents retrieved.").ai_sdk_part_content
             else:
                 yield create_tool_result_part(tool_call_id, str(tool_output)).ai_sdk_part_content
-        
-        # Generate step finish for tool execution (if enabled)
-        if tool_call_id in state.active_steps:
-            if not state.config or state.config.is_protocol_enabled('e'):
-                yield create_finish_step_part("stop").ai_sdk_part_content
-            state.active_steps.remove(tool_call_id)
 
 
 async def _process_agent_events(
@@ -511,48 +487,47 @@ def _extract_document_title(document: Document) -> str:
     return content
 
 
+# Component detection function for backward compatibility
 def _is_major_workflow_component(name: str, tags: List[str]) -> bool:
-    """Check if component is a major workflow component that should have step tracking"""
-    # Extended list of major workflow components that should have step tracking
-    major_components = [
-        'AgentExecutor', 'ReActAgent', 'PlanAndExecute',
-        'ConversationalRetrievalChain', 'RetrievalQA', 'ConversationChain',
-        'LLMChain', 'SequentialChain', 'SimpleSequentialChain',
-        'RouterChain', 'MultiPromptChain', 'MultiRetrievalQAChain',
-        'SQLDatabaseChain', 'APIChain', 'OpenAPIEndpointChain',
-        'LLMMathChain', 'TransformChain', 'LLMRequestsChain',
-        'ChatAgent', 'ZeroShotAgent', 'ReActDocstoreAgent',
-        'SelfAskWithSearchAgent', 'ConversationalAgent',
-        'StructuredChatAgent', 'OpenAIFunctionsAgent',
-        'XMLAgent', 'JSONChatAgent'
-    ]
+    """Check if a component is a major workflow component
     
-    # Check for LangGraph specific components and tags
-    langgraph_names = ['LangGraph', 'CompiledGraph', 'StateGraph', 'MessageGraph']
-    is_langgraph_component = (
-        name in langgraph_names or
-        any(tag.startswith('graph:step:') for tag in tags) or
-        any(tag in ['langgraph', 'graph', 'graph:node'] for tag in tags)
-    )
+    This function identifies LangChain components that represent major workflow
+    components like agents, chains, and graphs.
     
-    # Check for agent-related tags
-    is_agent_component = any(tag in ['agent', 'chain', 'executor', 'workflow', 'multi_agent'] for tag in tags)
+    Args:
+        name: Component name
+        tags: List of component tags
+        
+    Returns:
+        bool: True if component is a major workflow component
+    """
+    # Check by exact name matches for major components
+    major_component_names = {
+        'AgentExecutor', 'LangGraph', 'CompiledGraph',
+        'ConversationalRetrievalChain', 'RetrievalQA', 'LLMChain',
+        'SequentialChain', 'RouterChain'
+    }
     
-    return (name in major_components or 
-            is_langgraph_component or 
-            is_agent_component)
+    if name in major_component_names:
+        return True
+    
+    # Check by tags
+    major_tags = {'agent', 'chain', 'executor', 'langgraph', 'graph'}
+    if any(tag in major_tags for tag in tags):
+        return True
+    
+    # Check for graph step tags
+    if any(tag.startswith('graph:step:') for tag in tags):
+        return True
+    
+    # Check for graph node tags
+    if 'graph' in tags:
+        return True
+    
+    return False
 
 
-def create_start_step_part(step_id: str):
-    """Create step start part using proper factory function"""
-    from .factory import factory
-    return factory.start_step(step_id)
-
-
-def create_finish_step_part(finish_reason: str):
-    """Create step finish part using proper factory function"""
-    from .factory import factory
-    return factory.finish_step(finish_reason)
+# Step creation functions removed - f: and e: protocols now only used for actual agent steps
 
 
 def create_tool_call_start_part(tool_call_id: str, tool_name: str = "unknown_tool"):

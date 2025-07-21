@@ -137,12 +137,47 @@ with safe_config.protocols(['0', '9', 'a']):  # 仅启用文本、工具调用�
 - 任何来自语言模型的流式文本
 
 #### **`2:` (数据协议)**
-**触发条件**: 为结构化数据和元数据生成
+**触发条件**: 为结构化数据、元数据和生命周期事件生成
 **格式**: `2:[{"key":"value"}]`
 **发生时机**:
-- LangGraph 节点元数据和中间结果
+- **代理执行器生命周期事件** (agent-executor-start, agent-executor-end)
+- **LangGraph 节点生命周期事件** (node-start, node-end, node-error)
+- **LangGraph 工作流生命周期事件** (工作流开始/结束)
 - 工具执行元数据
 - 来自 LangChain 回调的自定义数据
+- 任何需要传输的结构化数据
+
+**详细格式示例**:
+
+**代理执行器事件**:
+```
+# 代理执行器开始
+2:[{"custom_type":"agent-executor-start","name":"AgentExecutor","inputs":{"input":"用户查询"}}]
+
+# 代理执行器结束
+2:[{"custom_type":"agent-executor-end","output":"最终响应"}]
+```
+
+**LangGraph 节点事件**:
+```
+# 节点开始
+2:[{"custom_type":"node-start","node_id":"run_123","name":"NodeName","node_type":"action"}]
+
+# 节点结束
+2:[{"custom_type":"node-end","node_id":"run_123"}]
+
+# 节点错误
+2:[{"custom_type":"node-error","node_id":"run_123","error":"错误信息"}]
+```
+
+**LangGraph 工作流事件**:
+```
+# 工作流开始
+2:[{"custom_type":"workflow-start","workflow_id":"workflow_123","name":"WorkflowName"}]
+
+# 工作流结束
+2:[{"custom_type":"workflow-end","workflow_id":"workflow_123","result":"工作流输出"}]
+```
 
 #### **`9:` (工具调用协议)**
 **触发条件**: 当工具被调用时生成
@@ -176,29 +211,32 @@ with safe_config.protocols(['0', '9', 'a']):  # 仅启用文本、工具调用�
 - LangGraph 节点执行结束
 - 包含可用的使用统计信息
 
-#### **`e:` (完成步骤协议)** 🔄 **增强支持**
-**触发条件**: 当主要工作流组件完成执行时生成
+#### **`e:` (完成步骤协议)** 🎯 **仅限Agent推理步骤**
+**触发条件**: 当Agent推理步骤完成时生成
 **格式**: `e:{"stepId":"step_123","finishReason":"completed"}`
 **发生时机**:
-- **LangGraph 工作流步骤完成** (主要用例)
-- **LangChain 代理执行** (AgentExecutor, ReActAgent, ChatAgent 等)
-- **基于链的工作流** (LLMChain, SequentialChain, RouterChain 等)
-- **具有特定标签的组件** (agent, chain, executor, workflow, multi_agent)
-- 多步骤过程和推理步骤的结束
+- **Agent推理步骤完成** (主要用例)
+- **单个代理行动和决策**
+- **Agent思考过程和规划步骤**
+- **不用于生命周期事件** (请使用 `2:` 协议)
 
-#### **`f:` (开始步骤协议)** 🔄 **增强支持**
-**触发条件**: 当主要工作流组件开始执行时生成
+> ⚠️ **重要**: 此协议专门用于Agent推理步骤，遵循AI SDK标准。代理执行器生命周期事件(开始/结束)使用带有 `custom_type` 字段的 `2:` 协议。
+
+#### **`f:` (开始步骤协议)** 🎯 **仅限Agent推理步骤**
+**触发条件**: 当Agent推理步骤开始时生成
 **格式**: `f:{"stepId":"step_123","stepType":"agent_action"}`
 **发生时机**:
-- **LangGraph 工作流步骤开始** (主要用例)
-- **LangChain 代理执行** (AgentExecutor, ReActAgent, ChatAgent 等)
-- **基于链的工作流** (LLMChain, SequentialChain, RouterChain 等)
-- **LangGraph 组件** (LangGraph, CompiledGraph, StateGraph 等)
-- **具有特定标签的组件** (agent, chain, executor, workflow, multi_agent, langgraph, graph)
-- 多步骤过程和推理步骤的开始
+- **Agent推理步骤开始** (主要用例)
+- **单个代理行动和决策**
+- **Agent思考过程和规划步骤**
+- **不用于生命周期事件** (请使用 `2:` 协议)
+
+> ⚠️ **重要**: 此协议专门用于Agent推理步骤，遵循AI SDK标准。代理执行器生命周期事件(开始/结束)使用带有 `custom_type` 字段的 `2:` 协议。
 
 > 💡 **重要说明**: 
-> - 协议 `d:`、`e:` 和 `f:` 是 **LangGraph 专用的**，不会出现在基础 LangChain 流中
+> - 协议 `d:` 是 **LangGraph 专用的**，不会出现在基础 LangChain 流中
+> - 协议 `e:` 和 `f:` **仅用于Agent推理步骤**，遵循AI SDK标准
+> - **生命周期事件** (代理执行器、LangGraph节点) 使用带有 `custom_type` 字段的 `2:` 协议
 > - 所有自动支持的协议都可以通过 `AdapterConfig` 单独启用或禁用
 > - 确切格式可能会根据底层 LangChain/LangGraph 事件结构而有所不同
 

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Test Protocol Type 2: LangGraph Node Monitoring
+Test Protocol Type 2: Lifecycle Monitoring (AI SDK Compatible)
 Format: 2:Array<JSONValue>\n
 
 This test verifies that the adapter correctly generates protocol 2 data parts
-for LangGraph node lifecycle monitoring in DeepSeek environment.
+for agent executor and LangGraph node lifecycle monitoring in DeepSeek environment.
+This follows AI SDK standards where 2: protocol is used for lifecycle events.
 """
 
 import asyncio
@@ -81,10 +82,11 @@ def create_test_graph(llm):
 
 
 async def test_langgraph_monitoring_protocol_2():
-    """Test Protocol Type 2: LangGraph Node Monitoring in DeepSeek environment"""
-    print("=== Testing Protocol Type 2: LangGraph Node Monitoring ===")
+    """Test Protocol Type 2: Lifecycle Monitoring (AI SDK Compatible) in DeepSeek environment"""
+    print("=== Testing Protocol Type 2: Lifecycle Monitoring (AI SDK Compatible) ===")
     print("Expected format: 2:Array<JSONValue>\\n")
-    print("Testing LangGraph node lifecycle events in DeepSeek environment\n")
+    print("Testing agent executor and LangGraph node lifecycle events in DeepSeek environment")
+    print("Following AI SDK standards where 2: protocol is used for lifecycle events\n")
     
     if not LANGGRAPH_AVAILABLE:
         print("ERROR: LangGraph not available, skipping test")
@@ -151,64 +153,102 @@ async def test_langgraph_monitoring_protocol_2():
                     data = json.loads(json_content)
                     print(f"  NODE DATA: {data}")
                     
-                    # Verify data structure for node monitoring
+                    # Verify data structure for lifecycle monitoring
                     if isinstance(data, list) and len(data) > 0:
                         for item in data:
                             if isinstance(item, dict) and 'custom_type' in item:
                                 custom_type = item['custom_type']
                                 if custom_type in ['node-start', 'node-end', 'node-error']:
-                                    print(f"  SUCCESS: Valid node monitoring data: {custom_type}")
+                                    print(f"  SUCCESS: Valid LangGraph node monitoring data: {custom_type}")
                                     if 'node_id' in item:
                                         print(f"     Node ID: {item['node_id']}")
                                     if 'name' in item:
                                         print(f"     Node Name: {item['name']}")
+                                elif custom_type in ['agent-executor-start', 'agent-executor-end']:
+                                    print(f"  SUCCESS: Valid agent executor monitoring data: {custom_type}")
+                                    if 'name' in item:
+                                        print(f"     Agent Name: {item['name']}")
+                                    if 'inputs' in item:
+                                        print(f"     Inputs: {item['inputs']}")
+                                    if 'output' in item:
+                                        print(f"     Output: {item['output']}")
+                                else:
+                                    print(f"  INFO: Other lifecycle event: {custom_type}")
                 except json.JSONDecodeError as e:
                     print(f"  ERROR: Invalid JSON in protocol 2: {e}")
         
         print(f"\n=== Analysis ===")
         print(f"Total protocol parts: {len(protocol_parts)}")
-        print(f"Protocol 2 (node monitoring) parts: {len(node_events)}")
+        print(f"Protocol 2 (lifecycle monitoring) parts: {len(node_events)}")
         
-        # Verify we got node monitoring data
+        # Count different types of lifecycle events
+        node_monitoring_events = 0
+        agent_executor_events = 0
+        other_lifecycle_events = 0
+        
+        for part in node_events:
+            try:
+                json_content = part[2:-1]
+                data = json.loads(json_content)
+                if isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, dict) and 'custom_type' in item:
+                            custom_type = item['custom_type']
+                            if custom_type in ['node-start', 'node-end', 'node-error']:
+                                node_monitoring_events += 1
+                            elif custom_type in ['agent-executor-start', 'agent-executor-end']:
+                                agent_executor_events += 1
+                            else:
+                                other_lifecycle_events += 1
+            except json.JSONDecodeError:
+                pass
+        
+        print(f"LangGraph node monitoring events: {node_monitoring_events}")
+        print(f"Agent executor lifecycle events: {agent_executor_events}")
+        print(f"Other lifecycle events: {other_lifecycle_events}")
+        
+        # Verify we got lifecycle monitoring data
         if len(node_events) > 0:
-            print("SUCCESS: LangGraph node monitoring data captured via protocol 2")
+            print("SUCCESS: Lifecycle monitoring data captured via protocol 2")
             
             # Verify format compliance
             format_correct = True
-            valid_monitoring_data = 0
+            valid_monitoring_data = node_monitoring_events + agent_executor_events + other_lifecycle_events
             
             for part in node_events:
                 if not (part.startswith('2:') and part.endswith('\n')):
                     print(f"ERROR: Format error in: {repr(part)}")
                     format_correct = False
                 else:
-                    # Verify JSON validity and monitoring data structure
+                    # Verify JSON validity
                     try:
                         json_content = part[2:-1]
                         data = json.loads(json_content)
-                        
-                        if isinstance(data, list):
-                            for item in data:
-                                if (isinstance(item, dict) and 
-                                    'custom_type' in item and 
-                                    item['custom_type'] in ['node-start', 'node-end', 'node-error']):
-                                    valid_monitoring_data += 1
+                        if not isinstance(data, list):
+                            print(f"ERROR: Protocol 2 data should be an array: {repr(part)}")
+                            format_correct = False
                     except json.JSONDecodeError:
                         print(f"ERROR: Invalid JSON in: {repr(part)}")
                         format_correct = False
             
-            print(f"Valid node monitoring events: {valid_monitoring_data}")
+            print(f"Total valid lifecycle monitoring events: {valid_monitoring_data}")
             
             if format_correct and valid_monitoring_data > 0:
-                print(f"SUCCESS: All protocol 2 parts follow correct format and contain valid node monitoring data")
-                print("SUCCESS: DeepSeek environment successfully generates LangGraph monitoring via protocol 2")
-                return True
+                # Additional check: ensure we have both node and agent executor events if expected
+                if node_monitoring_events > 0:
+                    print("\nTEST PASSED: Protocol 2 correctly captures lifecycle monitoring data")
+                    print(f"  - LangGraph node events: {node_monitoring_events}")
+                    print(f"  - Agent executor events: {agent_executor_events}")
+                    print(f"  - Other lifecycle events: {other_lifecycle_events}")
+                    return True
+                else:
+                    print("\nTEST FAILED: Expected LangGraph node monitoring events but found none")
+                    return False
             else:
-                print("ERROR: Some protocol 2 parts have incorrect format or invalid monitoring data")
+                print("\nTEST FAILED: Protocol 2 format or data validation failed")
                 return False
         else:
-            print("ERROR: FAILED: No LangGraph node monitoring data captured")
-            print("   This might indicate that LangGraph events are not being properly processed")
+            print("\nTEST FAILED: No protocol 2 lifecycle monitoring data found")
             return False
             
     except Exception as e:

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Test Protocol Types e & f: Step Finish and Step Start
+Test Protocol Types e & f: Step Finish and Step Start (AI SDK Compatible)
 Format:
 - e:{"finishReason": "stop", "usage": {...}, "isContinued": false}\n
 - f:{"stepType": "initial"}\n
 
 This test verifies that the adapter correctly generates step-related protocol parts
-when streaming from agent workflows in DeepSeek environment.
+only for actual agent reasoning steps (compatible with AI SDK), while using 2: protocol
+for agent executor lifecycle events.
 """
 
 import asyncio
@@ -63,9 +64,11 @@ def summarize_content(content: str) -> str:
 
 
 async def test_step_protocols_ef():
-    """Test Protocol Types e & f: Step Finish and Step Start in agent workflows"""
-    print("=== Testing Protocol Types e & f: Step Finish and Step Start ===")
-    print("Expected formats:")
+    """Test Protocol Types e & f: Step Finish and Step Start (AI SDK Compatible)"""
+    print("=== Testing Protocol Types e & f: Step Finish and Step Start (AI SDK Compatible) ===")
+    print("Expected behavior:")
+    print("- f: and e: protocols only for actual agent reasoning steps")
+    print("- 2: protocol for agent executor lifecycle events")
     print("- e:{\"finishReason\": \"stop\", \"usage\": {...}, \"isContinued\": false}\\n")
     print("- f:{\"stepType\": \"initial\"}\\n")
     print("Reference: https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol\n")
@@ -122,6 +125,7 @@ async def test_step_protocols_ef():
         protocol_parts = []
         step_finish_parts = []  # Protocol e
         step_start_parts = []   # Protocol f
+        data_parts = []         # Protocol 2 (for agent executor lifecycle)
         
         print("\nStreaming agent response with step tracking:")
         async for part in adapter.to_data_stream_response(agent_executor.astream({"input": test_input})):
@@ -154,11 +158,43 @@ async def test_step_protocols_ef():
                         print(f"     Type: {step_start_content['stepType']}")
                 except json.JSONDecodeError:
                     print(f"  ❌ Invalid JSON in step start part: {part}")
+                    
+            elif part.startswith('2:'):
+                data_parts.append(part)
+                # Extract and display data information
+                try:
+                    data_content = json.loads(part[2:-1])  # Remove '2:' and '\n', parse JSON
+                    if isinstance(data_content, list) and len(data_content) > 0:
+                        for item in data_content:
+                            if isinstance(item, dict) and 'custom_type' in item:
+                                custom_type = item['custom_type']
+                                if custom_type in ['agent-executor-start', 'agent-executor-end']:
+                                    print(f"  📊 Agent Executor Event: {custom_type}")
+                                elif custom_type in ['node-start', 'node-end', 'node-error']:
+                                    print(f"  🔗 LangGraph Node Event: {custom_type}")
+                                else:
+                                    print(f"  📊 Data Event: {custom_type}")
+                except json.JSONDecodeError:
+                    print(f"  ❌ Invalid JSON in data part: {part}")
         
         print(f"\n=== Analysis ===")
         print(f"Total protocol parts: {len(protocol_parts)}")
         print(f"Step finish parts (type e): {len(step_finish_parts)}")
         print(f"Step start parts (type f): {len(step_start_parts)}")
+        print(f"Data parts (type 2): {len(data_parts)}")
+        
+        # Count agent executor events
+        agent_executor_events = 0
+        for part in data_parts:
+            try:
+                data_content = json.loads(part[2:-1])
+                if isinstance(data_content, list):
+                    for item in data_content:
+                        if isinstance(item, dict) and item.get('custom_type') in ['agent-executor-start', 'agent-executor-end']:
+                            agent_executor_events += 1
+            except json.JSONDecodeError:
+                pass
+        print(f"Agent executor lifecycle events: {agent_executor_events}")
         
         # Verify we got step-related parts
         success = True
@@ -240,24 +276,35 @@ async def test_step_protocols_ef():
             else:
                 print("WARNING: Step finish appeared before step start")
         
+        # Verify agent executor lifecycle events (2: protocol)
+        if agent_executor_events >= 2:  # Should have at least start and end
+            print("✅ SUCCESS: Agent executor lifecycle events (2:) generated correctly")
+        elif agent_executor_events > 0:
+            print("⚠️  PARTIAL: Some agent executor events found, but incomplete lifecycle")
+        else:
+            print("❌ MISSING: No agent executor lifecycle events found")
+            success = False
+        
         # Final assessment
         step_protocols_found = len(step_finish_parts) + len(step_start_parts)
         
-        if success and step_protocols_found > 0:
-            print("\n✅ COMPREHENSIVE SUCCESS: Step protocols (e:, f:) work correctly")
-            print("   ✅ DeepSeek agent workflows generate proper AI SDK step protocol format")
-            print("   ✅ Step events are properly JSON-encoded with required fields")
-            if len(step_start_parts) > 0 and len(step_finish_parts) > 0:
-                print("   ✅ Complete step lifecycle: start (f:) -> finish (e:)")
+        if success and agent_executor_events >= 1:  # At least some lifecycle events
+            print("\n✅ COMPREHENSIVE SUCCESS: AI SDK compatible protocol generation")
+            print("   ✅ Agent executor lifecycle uses 2: protocol (AI SDK compatible)")
+            print("   ✅ Step protocols (e:, f:) reserved for actual agent reasoning steps")
+            if step_protocols_found > 0:
+                print("   ✅ Step events are properly JSON-encoded with required fields")
+                if len(step_start_parts) > 0 and len(step_finish_parts) > 0:
+                    print("   ✅ Complete step lifecycle: start (f:) -> finish (e:)")
+            else:
+                print("   ℹ️  No step protocols generated (expected for simple workflows)")
             return True
-        elif step_protocols_found == 0:
-            print("\nWARNING: NO STEP PROTOCOLS GENERATED")
-            print("   This might be expected if the agent doesn't generate step events")
-            print("   Step protocols are typically used in more complex agent workflows")
-            print("   The test still validates that the adapter can handle step protocols when they occur")
-            return True  # Not a failure - step protocols are optional
+        elif agent_executor_events == 0:
+            print("\n❌ FAILURE: No agent executor lifecycle events generated")
+            print("   Expected 2: protocol for agent-executor-start and agent-executor-end")
+            return False
         else:
-            print("\n❌ PARTIAL OR COMPLETE FAILURE: Issues detected in step protocol generation")
+            print("\n❌ PARTIAL OR COMPLETE FAILURE: Issues detected in protocol generation")
             return False
             
     except Exception as e:
