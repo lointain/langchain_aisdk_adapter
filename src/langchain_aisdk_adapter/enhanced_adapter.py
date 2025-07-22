@@ -163,15 +163,14 @@ class EnhancedStreamProcessor:
             yield self._create_text_end_event()
             self.has_text_started = False
         
-        # Always finish the current step when chat model ends
-        if self.current_step_active:
+        # If no tool calls were made in this step, finish the step immediately
+        # This handles the case where LLM generates only text without tool calls
+        if self.current_step_active and not self.tool_completed_in_current_step:
             yield self._create_finish_step_event()
             self.current_step_active = False
-            
-            # If we had tool calls in this step, prepare for a new step for text generation
-            if self.tool_completed_in_current_step:
-                self.tool_completed_in_current_step = False
-                self.need_new_step_for_text = True
+        
+        # If tool calls were made, the step will be finished in _process_intermediate_steps
+        # after all tool outputs are available
     
     async def _handle_tool_start(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle tool start event."""
@@ -348,6 +347,14 @@ class EnhancedStreamProcessor:
                         
                         # Mark that we have completed a tool call in this step
                         self.tool_completed_in_current_step = True
+        
+        # After processing all intermediate steps (all tools in this LLM cycle),
+        # finish the current step if we have tool calls
+        if self.tool_completed_in_current_step and self.current_step_active:
+            yield self._create_finish_step_event()
+            self.current_step_active = False
+            self.tool_completed_in_current_step = False
+            self.need_new_step_for_text = True
     
     async def _handle_text_content(self, text: str) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle text content and emit appropriate events."""
