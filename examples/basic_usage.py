@@ -3,7 +3,7 @@
 import asyncio
 from typing import AsyncGenerator
 
-from langchain_aisdk_adapter import to_ui_message_stream, StreamCallbacks
+from langchain_aisdk_adapter import to_data_stream, StreamCallbacks
 
 
 # Example 1: Convert string stream (e.g., from StringOutputParser)
@@ -19,7 +19,7 @@ async def example_string_stream():
             await asyncio.sleep(0.1)  # Simulate streaming delay
     
     # Convert to AI SDK format
-    async for ui_chunk in to_ui_message_stream(mock_string_stream()):
+    async for ui_chunk in to_data_stream(mock_string_stream()):
         print(f"UI Chunk: {ui_chunk}")
 
 
@@ -39,7 +39,7 @@ async def example_ai_message_chunks():
             yield chunk
             await asyncio.sleep(0.1)
     
-    async for ui_chunk in to_ui_message_stream(mock_ai_message_stream()):
+    async for ui_chunk in to_data_stream(mock_ai_message_stream()):
         print(f"UI Chunk: {ui_chunk}")
 
 
@@ -68,7 +68,7 @@ async def example_stream_events():
             yield event
             await asyncio.sleep(0.1)
     
-    async for ui_chunk in to_ui_message_stream(mock_stream_events()):
+    async for ui_chunk in to_data_stream(mock_stream_events()):
         print(f"UI Chunk: {ui_chunk}")
 
 
@@ -103,22 +103,33 @@ async def example_with_callbacks():
     )
     
     print("\nUI Chunks:")
-    async for ui_chunk in to_ui_message_stream(mock_stream(), callbacks=callbacks):
+    async for ui_chunk in to_data_stream(mock_stream(), callbacks=callbacks):
         print(f"  {ui_chunk}")
 
 
-# Example 5: Custom message ID
+# Example 5: Custom message ID (using AI SDK callbacks)
 async def example_custom_message_id():
-    """Example of using custom message ID."""
+    """Example of using custom message ID with AI SDK callbacks."""
     print("\n=== Example 5: Custom Message ID ===")
+    
+    from langchain_aisdk_adapter.callbacks import BaseAICallbackHandler, Message
+    
+    class CustomCallbackHandler(BaseAICallbackHandler):
+        async def on_finish(self, message: Message, options: dict = None):
+            print(f"✅ Message completed with ID: {message.id}")
+            print(f"📄 Content: {message.content}")
     
     async def mock_stream():
         yield "Custom ID example"
     
-    async for ui_chunk in to_ui_message_stream(
-        mock_stream(), 
-        message_id="custom-message-123"
-    ):
+    # Use AI SDK callbacks to get custom message ID
+    from langchain_aisdk_adapter.adapter import StreamProcessor
+    processor = StreamProcessor(
+        message_id="custom-message-123",
+        callbacks=CustomCallbackHandler()
+    )
+    
+    async for ui_chunk in processor.process_stream(mock_stream()):
         print(f"UI Chunk: {ui_chunk}")
 
 
@@ -150,7 +161,7 @@ async def example_async_callbacks():
         on_final=async_on_final
     )
     
-    async for ui_chunk in to_ui_message_stream(mock_stream(), callbacks=callbacks):
+    async for ui_chunk in to_data_stream(mock_stream(), callbacks=callbacks):
         print(f"  UI Chunk: {ui_chunk}")
 
 

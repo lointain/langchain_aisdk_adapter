@@ -3,8 +3,32 @@
 A Python package that converts LangChain/LangGraph event streams to AI SDK UI Stream Protocol format.
 """
 
-from .adapter import to_ui_message_stream
-from .callbacks import StreamCallbacks
+from .adapter import (
+    # Main API functions (AI SDK compatible)
+    to_data_stream,
+    to_data_stream_response,
+    merge_into_data_stream,
+)
+from .callbacks import (
+    BaseAICallbackHandler,
+    StreamCallbacks,
+    CallbacksTransformer,
+)
+from .callbacks import (
+    Message,
+    TextUIPart,
+    ReasoningUIPart,
+    ToolInvocation,
+    ToolInvocationUIPart,
+    SourceUIPart,
+    FileUIPart,
+    StepStartUIPart,
+    ErrorUIPart,
+    UIPart,
+    Attachment,
+    LanguageModelUsage,
+    JSONValue,
+)
 from .models import (
     LangChainAIMessageChunk,
     LangChainMessageContent,
@@ -43,8 +67,28 @@ from .models import (
 __version__ = "0.0.1a1"
 
 __all__ = [
-    "to_ui_message_stream",
+    # Main API functions (AI SDK compatible)
+    "to_data_stream",
+    "to_data_stream_response",
+    "merge_into_data_stream",
+    # Callback system
+    "BaseAICallbackHandler",
     "StreamCallbacks",
+    "CallbacksTransformer",
+    # Data models
+    "Message",
+    "TextUIPart",
+    "ReasoningUIPart",
+    "ToolInvocation",
+    "ToolInvocationUIPart",
+    "SourceUIPart",
+    "FileUIPart",
+    "StepStartUIPart",
+    "ErrorUIPart",
+    "UIPart",
+    "Attachment",
+    "LanguageModelUsage",
+    "JSONValue",
     "LangChainAIMessageChunk",
     "LangChainMessageContent",
     "LangChainMessageContentComplex",
