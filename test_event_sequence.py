@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Debug script to check which tool events are being triggered.
+Simple test to check event sequence, especially finish-step timing.
 """
 
 import asyncio
@@ -9,6 +9,7 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.tools import tool
 from langchain import hub
+from langchain_aisdk_adapter import to_data_stream
 
 # Mock tools for testing
 @tool
@@ -16,8 +17,8 @@ def get_weather(location: str) -> str:
     """Get weather for a location."""
     return f"The weather in {location} is sunny with 22°C temperature."
 
-async def debug_tool_events():
-    """Debug which tool events are triggered."""
+async def test_event_sequence():
+    """Test the event sequence."""
     
     # Temporarily disable LangSmith tracing to avoid warnings
     os.environ["LANGCHAIN_TRACING_V2"] = "false"
@@ -75,52 +76,58 @@ Thought:{agent_scratchpad}"""
     # Test query
     query = "What's the weather in Tokyo?"
     
-    print("=== Debug Tool Events ===")
+    print("=== Event Sequence Test ===")
     print(f"Query: {query}")
-    print("\n=== LangChain Events ===")
+    print("\n=== Events ===")
+    
+    # Collect protocol events
+    protocol_events = []
     
     try:
-        # Stream the response using astream_events to see raw LangChain events
+        # Stream the response using astream_events
         agent_stream = agent_executor.astream_events({"input": query}, version="v2")
         
-        event_count = 0
-        async for event in agent_stream:
-            event_count += 1
-            event_type = event.get("event", "unknown")
+        async for chunk in to_data_stream(agent_stream):
+            protocol_events.append(chunk)
+            event_type = chunk.get('type')
             
-            # Print tool-related events
-            if "tool" in event_type.lower():
-                print(f"{event_count:3d}. {event_type}")
-                data = event.get("data", {})
-                if "name" in data:
-                    print(f"     Name: {data.get('name')}")
-                if "run_id" in data:
-                    print(f"     Run ID: {data.get('run_id')}")
-                if "inputs" in data:
-                    print(f"     Inputs: {data.get('inputs')}")
-                if "outputs" in data:
-                    print(f"     Outputs: {data.get('outputs')}")
-                print()
-            
-            # Print chain events that might contain intermediate_steps
-            elif "chain" in event_type.lower():
-                data = event.get("data", {})
-                chunk = data.get("chunk", {})
-                if "intermediate_steps" in chunk:
-                    print(f"{event_count:3d}. {event_type} (has intermediate_steps)")
-                    print(f"     Intermediate steps: {len(chunk['intermediate_steps'])}")
-                    for i, step in enumerate(chunk['intermediate_steps']):
-                        if isinstance(step, tuple) and len(step) == 2:
-                            action, result = step
-                            if hasattr(action, 'tool'):
-                                print(f"       Step {i}: {action.tool} -> {result}")
-                    print()
+            # Print key events
+            if event_type in ['start-step', 'tool-output-available', 'finish-step', 'finish']:
+                print(f"{len(protocol_events):3d}. {event_type}")
+                if event_type == 'tool-output-available':
+                    tool_id = chunk.get('toolCallId', 'N/A')
+                    print(f"     Tool ID: {tool_id}")
             
     except Exception as e:
         print(f"Error during streaming: {e}")
         return []
     
-    print(f"\nTotal events processed: {event_count}")
+    print("\n=== Analysis ===")
+    
+    # Find tool-output-available events and check what follows
+    for i, event in enumerate(protocol_events):
+        if event.get('type') == 'tool-output-available':
+            print(f"\nFound tool-output-available at position {i}:")
+            print(f"  Event: {event}")
+            
+            # Check next few events
+            for j in range(1, min(4, len(protocol_events) - i)):
+                next_event = protocol_events[i + j]
+                print(f"  +{j}: {next_event.get('type')}")
+                if next_event.get('type') == 'finish-step':
+                    print(f"  --> finish-step found at +{j} position")
+                    break
+    
+    # Count events
+    event_counts = {}
+    for event in protocol_events:
+        event_type = event.get('type')
+        event_counts[event_type] = event_counts.get(event_type, 0) + 1
+    
+    print(f"\nTotal events: {len(protocol_events)}")
+    print(f"Event counts: {event_counts}")
+    
+    return protocol_events
 
 if __name__ == "__main__":
-    asyncio.run(debug_tool_events())
+    asyncio.run(test_event_sequence())

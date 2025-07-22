@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Debug script to check which tool events are being triggered.
+Debug script to examine on_tool_start event data structure.
 """
 
 import asyncio
 import os
+import json
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.tools import tool
@@ -16,8 +17,8 @@ def get_weather(location: str) -> str:
     """Get weather for a location."""
     return f"The weather in {location} is sunny with 22°C temperature."
 
-async def debug_tool_events():
-    """Debug which tool events are triggered."""
+async def debug_tool_start_data():
+    """Debug on_tool_start event data structure."""
     
     # Temporarily disable LangSmith tracing to avoid warnings
     os.environ["LANGCHAIN_TRACING_V2"] = "false"
@@ -75,9 +76,9 @@ Thought:{agent_scratchpad}"""
     # Test query
     query = "What's the weather in Tokyo?"
     
-    print("=== Debug Tool Events ===")
+    print("=== Debug Tool Start Data ===")
     print(f"Query: {query}")
-    print("\n=== LangChain Events ===")
+    print("\n=== Tool Start Events ===")
     
     try:
         # Stream the response using astream_events to see raw LangChain events
@@ -88,34 +89,35 @@ Thought:{agent_scratchpad}"""
             event_count += 1
             event_type = event.get("event", "unknown")
             
-            # Print tool-related events
-            if "tool" in event_type.lower():
-                print(f"{event_count:3d}. {event_type}")
+            # Print tool start events with full data
+            if event_type == "on_tool_start":
+                print(f"\n=== Tool Start Event {event_count} ===")
                 data = event.get("data", {})
-                if "name" in data:
-                    print(f"     Name: {data.get('name')}")
-                if "run_id" in data:
-                    print(f"     Run ID: {data.get('run_id')}")
-                if "inputs" in data:
-                    print(f"     Inputs: {data.get('inputs')}")
-                if "outputs" in data:
-                    print(f"     Outputs: {data.get('outputs')}")
-                print()
-            
-            # Print chain events that might contain intermediate_steps
-            elif "chain" in event_type.lower():
-                data = event.get("data", {})
-                chunk = data.get("chunk", {})
-                if "intermediate_steps" in chunk:
-                    print(f"{event_count:3d}. {event_type} (has intermediate_steps)")
-                    print(f"     Intermediate steps: {len(chunk['intermediate_steps'])}")
-                    for i, step in enumerate(chunk['intermediate_steps']):
-                        if isinstance(step, tuple) and len(step) == 2:
-                            action, result = step
-                            if hasattr(action, 'tool'):
-                                print(f"       Step {i}: {action.tool} -> {result}")
-                    print()
-            
+                print(f"Full event data:")
+                print(json.dumps(data, indent=2, default=str))
+                
+                # Try different extraction methods
+                print(f"\nExtraction attempts:")
+                print(f"  data.get('name'): {data.get('name')}")
+                print(f"  data.get('tool_name'): {data.get('tool_name')}")
+                print(f"  data.get('tool'): {data.get('tool')}")
+                
+                serialized = data.get('serialized', {})
+                print(f"  serialized.get('name'): {serialized.get('name')}")
+                print(f"  serialized.get('id'): {serialized.get('id')}")
+                print(f"  serialized.get('_type'): {serialized.get('_type')}")
+                print(f"  serialized.get('class_name'): {serialized.get('class_name')}")
+                
+                if 'kwargs' in serialized:
+                    kwargs = serialized['kwargs']
+                    print(f"  serialized.kwargs.get('name'): {kwargs.get('name')}")
+                
+                metadata = data.get('metadata', {})
+                print(f"  metadata.get('name'): {metadata.get('name')}")
+                
+                print(f"  inputs: {data.get('inputs')}")
+                print(f"  run_id: {data.get('run_id')}")
+                
     except Exception as e:
         print(f"Error during streaming: {e}")
         return []
@@ -123,4 +125,4 @@ Thought:{agent_scratchpad}"""
     print(f"\nTotal events processed: {event_count}")
 
 if __name__ == "__main__":
-    asyncio.run(debug_tool_events())
+    asyncio.run(debug_tool_start_data())

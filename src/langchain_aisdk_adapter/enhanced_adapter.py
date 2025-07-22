@@ -31,6 +31,7 @@ from .models import (
     UIMessageChunkTextDelta,
     UIMessageChunkTextEnd,
     UIMessageChunkToolInputStart,
+    UIMessageChunkToolInputDelta,
     UIMessageChunkToolInputAvailable,
     UIMessageChunkToolOutputAvailable,
 )
@@ -64,6 +65,11 @@ class EnhancedStreamProcessor:
             # Process stream events
             async for event in self._process_langchain_events(stream):
                 yield event
+            
+            # Emit final finish-step if there's an active step (for non-tool final steps)
+            if self.current_step_active:
+                yield self._create_finish_step_event()
+                self.current_step_active = False
                 
             # Emit finish event and handle callbacks
             yield self._create_finish_event()
@@ -150,27 +156,51 @@ class EnhancedStreamProcessor:
     
     async def _handle_chat_model_end(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle chat model end event."""
-        if self.current_step_active:
-            # End text if it was started
-            if self.has_text_started:
-                yield self._create_text_end_event()
-                self.has_text_started = False
-            
-            yield self._create_finish_step_event()
-            self.current_step_active = False
+        # End text if it was started
+        if self.has_text_started:
+            yield self._create_text_end_event()
+            self.has_text_started = False
+        
+        # Don't emit finish-step here - it will be handled by:
+        # 1. _handle_tool_end for steps with tool calls
+        # 2. Process stream end for final steps without tools
     
     async def _handle_tool_start(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle tool start event."""
+        # Skip direct tool events if data is incomplete
+        # LangChain's direct tool events often lack proper tool information
+        # We'll rely on intermediate_steps processing instead
+        if not data or not data.get("name") and not data.get("serialized", {}).get("name"):
+            return
+        
         run_id = data.get("run_id", str(uuid.uuid4()))
         
-        # Try different possible field names for tool name
+        # Try different possible field names for tool name with more comprehensive extraction
         name = (
             data.get("name") or 
             data.get("tool_name") or 
             data.get("tool") or
             (data.get("serialized", {}).get("name")) or
+            (data.get("serialized", {}).get("id", [""])[-1] if isinstance(data.get("serialized", {}).get("id"), list) else "") or
+            (data.get("metadata", {}).get("name")) or
             "unknown_tool"
         )
+        
+        # Additional extraction from nested structures
+        if name == "unknown_tool" and "serialized" in data:
+            serialized = data["serialized"]
+            if isinstance(serialized, dict):
+                # Try to extract from various nested locations
+                name = (
+                    serialized.get("_type") or
+                    serialized.get("class_name") or
+                    (serialized.get("kwargs", {}).get("name")) or
+                    name
+                )
+        
+        # Skip if we still can't determine the tool name
+        if name == "unknown_tool":
+            return
         
         inputs = data.get("inputs", {})
         
@@ -185,6 +215,11 @@ class EnhancedStreamProcessor:
         
         # Emit tool input start
         yield self._create_tool_input_start_event(tool_call_id, name)
+        
+        # Emit tool input delta (serialize the input as JSON)
+        import json
+        input_json = json.dumps(inputs if isinstance(inputs, dict) else {"input": inputs})
+        yield self._create_tool_input_delta_event(tool_call_id, input_json)
         
         # Emit tool input available
         yield self._create_tool_input_available_event(tool_call_id, name, inputs)
@@ -205,6 +240,7 @@ class EnhancedStreamProcessor:
         
         tool_call_id = str(run_id)
         
+        # Only process if we have a corresponding tool start event
         if tool_call_id in self.tool_calls:
             # Update tool call state
             self.tool_calls[tool_call_id]["outputs"] = outputs
@@ -220,6 +256,11 @@ class EnhancedStreamProcessor:
                     part.toolInvocation.result = outputs
                     part.toolInvocation.state = "result"
                     break
+            
+            # Emit finish-step immediately after tool completion (matching real protocol)
+            if self.current_step_active:
+                yield self._create_finish_step_event()
+                self.current_step_active = False
     
     async def _handle_chain_stream(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle chain stream event that might contain tool information."""
@@ -256,6 +297,9 @@ class EnhancedStreamProcessor:
                     # Create a unique tool call ID based on the action
                     tool_call_id = f"tool_{abs(hash(str(action)))}"
                     
+                    # Note: Direct tool events are now skipped when incomplete,
+                    # so intermediate_steps processing is the primary source of tool events
+                    
                     # Only process if we haven't seen this tool call before
                     if tool_call_id not in self.tool_calls:
                         # Store tool call info
@@ -268,6 +312,11 @@ class EnhancedStreamProcessor:
                         
                         # Emit tool input start
                         yield self._create_tool_input_start_event(tool_call_id, tool_name)
+                        
+                        # Emit tool input delta (serialize the input as JSON)
+                        import json
+                        input_json = json.dumps(tool_input if isinstance(tool_input, dict) else {"input": tool_input})
+                        yield self._create_tool_input_delta_event(tool_call_id, input_json)
                         
                         # Emit tool input available
                         yield self._create_tool_input_available_event(tool_call_id, tool_name, tool_input)
@@ -387,6 +436,18 @@ class EnhancedStreamProcessor:
             "type": "tool-input-start",
             "toolCallId": tool_call_id,
             "toolName": tool_name
+        }
+    
+    def _create_tool_input_delta_event(
+        self, 
+        tool_call_id: str, 
+        input_text_delta: str
+    ) -> UIMessageChunkToolInputDelta:
+        """Create tool input delta event."""
+        return {
+            "type": "tool-input-delta",
+            "toolCallId": tool_call_id,
+            "inputTextDelta": input_text_delta
         }
     
     def _create_tool_input_available_event(
