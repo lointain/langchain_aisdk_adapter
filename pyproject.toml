@@ -174,7 +174,8 @@ python_functions = ["test_*"]
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
-    "slow: Slow tests"
+    "slow: Slow tests",
+    "asyncio: Async tests"
 ]
 asyncio_mode = "auto"
 

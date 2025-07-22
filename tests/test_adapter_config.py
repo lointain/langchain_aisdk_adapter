@@ -18,8 +18,11 @@ class TestAdapterWithConfig:
         async def mock_stream():
             yield "Hello World"
         
+        # Create adapter instance with default config
+        adapter = LangChainAdapter()
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream()):
+        async for part in adapter.to_data_stream_response(mock_stream()):
             parts.append(part)
         
         # Should have text part and finish message
@@ -35,8 +38,11 @@ class TestAdapterWithConfig:
         async def mock_stream():
             yield "Hello World"
         
+        # Create adapter instance with custom config
+        adapter = LangChainAdapter(config=config)
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream(), config):
+        async for part in adapter.to_data_stream_response(mock_stream()):
             parts.append(part)
         
         # Should only have finish message, no text
@@ -51,8 +57,11 @@ class TestAdapterWithConfig:
         async def mock_stream():
             yield "Hello World"
         
+        # Create adapter instance with custom config
+        adapter = LangChainAdapter(config=config)
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream(), config):
+        async for part in adapter.to_data_stream_response(mock_stream()):
             parts.append(part)
         
         # Should only have text part, no finish message
@@ -67,8 +76,11 @@ class TestAdapterWithConfig:
         async def mock_stream():
             yield "Hello World"
         
+        # Create adapter instance with minimal config
+        adapter = LangChainAdapter(config=config)
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream(), config):
+        async for part in adapter.to_data_stream_response(mock_stream()):
             parts.append(part)
         
         # Should only have text part (finish message disabled in minimal)
@@ -84,8 +96,11 @@ class TestAdapterWithConfig:
             chunk = AIMessageChunk(content="Hello from AI")
             yield chunk
         
+        # Create adapter instance with custom config
+        adapter = LangChainAdapter(config=config)
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream(), config):
+        async for part in adapter.to_data_stream_response(mock_stream()):
             parts.append(part)
         
         # Should only have finish message, no text
@@ -101,8 +116,11 @@ class TestAdapterWithConfig:
             raise ValueError("Test error")
             yield "This won't be reached"
         
+        # Create adapter instance with custom config
+        adapter = LangChainAdapter(config=config)
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream(), config):
+        async for part in adapter.to_data_stream_response(mock_stream()):
             parts.append(part)
         
         # Should have no parts since error protocol is disabled
@@ -139,8 +157,11 @@ class TestAdapterWithConfig:
         async def mock_stream():
             yield '0:"Pre-formatted text"\n'  # Pre-formatted AI SDK string
         
+        # Create adapter instance with custom config
+        adapter = LangChainAdapter(config=config)
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream(), config):
+        async for part in adapter.to_data_stream_response(mock_stream()):
             parts.append(part)
         
         # Pre-formatted strings should bypass config and be yielded as-is

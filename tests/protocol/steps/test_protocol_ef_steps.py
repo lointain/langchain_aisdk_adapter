@@ -138,7 +138,7 @@ async def test_step_protocols_ef():
                 # Extract and display step finish information
                 try:
                     step_finish_content = json.loads(part[2:-1])  # Remove 'e:' and '\n', parse JSON
-                    print(f"  🏁 Step Finish: {step_finish_content}")
+                    print(f"  [FINISH] Step Finish: {step_finish_content}")
                     if 'finishReason' in step_finish_content:
                         print(f"     Reason: {step_finish_content['finishReason']}")
                     if 'usage' in step_finish_content:
@@ -146,18 +146,18 @@ async def test_step_protocols_ef():
                     if 'isContinued' in step_finish_content:
                         print(f"     Continued: {step_finish_content['isContinued']}")
                 except json.JSONDecodeError:
-                    print(f"  ❌ Invalid JSON in step finish part: {part}")
+                    print(f"  [ERROR] Invalid JSON in step finish part: {part}")
                     
             elif part.startswith('f:'):
                 step_start_parts.append(part)
                 # Extract and display step start information
                 try:
                     step_start_content = json.loads(part[2:-1])  # Remove 'f:' and '\n', parse JSON
-                    print(f"  🚀 Step Start: {step_start_content}")
+                    print(f"  [START] Step Start: {step_start_content}")
                     if 'stepType' in step_start_content:
                         print(f"     Type: {step_start_content['stepType']}")
                 except json.JSONDecodeError:
-                    print(f"  ❌ Invalid JSON in step start part: {part}")
+                    print(f"  [ERROR] Invalid JSON in step start part: {part}")
                     
             elif part.startswith('2:'):
                 data_parts.append(part)
@@ -169,13 +169,13 @@ async def test_step_protocols_ef():
                             if isinstance(item, dict) and 'custom_type' in item:
                                 custom_type = item['custom_type']
                                 if custom_type in ['agent-executor-start', 'agent-executor-end']:
-                                    print(f"  📊 Agent Executor Event: {custom_type}")
+                                    print(f"  [AGENT] Agent Executor Event: {custom_type}")
                                 elif custom_type in ['node-start', 'node-end', 'node-error']:
-                                    print(f"  🔗 LangGraph Node Event: {custom_type}")
+                                    print(f"  [NODE] LangGraph Node Event: {custom_type}")
                                 else:
-                                    print(f"  📊 Data Event: {custom_type}")
+                                    print(f"  [DATA] Data Event: {custom_type}")
                 except json.JSONDecodeError:
-                    print(f"  ❌ Invalid JSON in data part: {part}")
+                    print(f"  [ERROR] Invalid JSON in data part: {part}")
         
         print(f"\n=== Analysis ===")
         print(f"Total protocol parts: {len(protocol_parts)}")
@@ -201,12 +201,12 @@ async def test_step_protocols_ef():
         
         # Check step finish parts (Protocol e)
         if len(step_finish_parts) > 0:
-            print("✅ SUCCESS: Step finish protocol parts (e:) generated")
+            print("[SUCCESS] Step finish protocol parts (e:) generated")
             
             # Verify step finish format compliance
             for part in step_finish_parts:
                 if not (part.startswith('e:') and part.endswith('\n')):
-                    print(f"❌ Step finish format error: {repr(part)}")
+                    print(f"[ERROR] Step finish format error: {repr(part)}")
                     success = False
                 else:
                     # Verify JSON validity and required fields
@@ -214,33 +214,33 @@ async def test_step_protocols_ef():
                         step_finish_data = json.loads(part[2:-1])
                         # finishReason is required
                         if 'finishReason' not in step_finish_data:
-                            print(f"❌ Missing finishReason in step finish: {repr(part)}")
+                            print(f"[ERROR] Missing finishReason in step finish: {repr(part)}")
                             success = False
                         # usage and isContinued are optional but should be valid if present
                         if 'usage' in step_finish_data and not isinstance(step_finish_data['usage'], dict):
-                            print(f"❌ Invalid usage format in step finish: {repr(part)}")
+                            print(f"[ERROR] Invalid usage format in step finish: {repr(part)}")
                             success = False
                         if 'isContinued' in step_finish_data and not isinstance(step_finish_data['isContinued'], bool):
-                            print(f"❌ Invalid isContinued format in step finish: {repr(part)}")
+                            print(f"[ERROR] Invalid isContinued format in step finish: {repr(part)}")
                             success = False
                     except json.JSONDecodeError:
-                        print(f"❌ Invalid JSON in step finish part: {repr(part)}")
+                        print(f"[ERROR] Invalid JSON in step finish part: {repr(part)}")
                         success = False
             
             if success:
-                print("✅ All step finish parts follow correct format: e:{\"finishReason\":\"...\"}\\n")
+                print("[SUCCESS] All step finish parts follow correct format: e:{\"finishReason\":\"...\"}\\n")
         else:
             print("WARNING: No step finish protocol parts generated")
             print("   This might be expected if the agent workflow doesn't generate step events")
         
         # Check step start parts (Protocol f)
         if len(step_start_parts) > 0:
-            print("✅ SUCCESS: Step start protocol parts (f:) generated")
+            print("[SUCCESS] Step start protocol parts (f:) generated")
             
             # Verify step start format compliance
             for part in step_start_parts:
                 if not (part.startswith('f:') and part.endswith('\n')):
-                    print(f"❌ Step start format error: {repr(part)}")
+                    print(f"[ERROR] Step start format error: {repr(part)}")
                     success = False
                 else:
                     # Verify JSON validity and stepType field
@@ -251,11 +251,11 @@ async def test_step_protocols_ef():
                             print("WARNING: Missing stepType in step start: {repr(part)}")
                             # Not marking as failure since stepType might be optional
                     except json.JSONDecodeError:
-                        print(f"❌ Invalid JSON in step start part: {repr(part)}")
+                        print(f"[ERROR] Invalid JSON in step start part: {repr(part)}")
                         success = False
             
             if success:
-                print("✅ All step start parts follow correct format: f:{\"stepType\":\"...\"}\\n")
+                print("[SUCCESS] All step start parts follow correct format: f:{\"stepType\":\"...\"}\\n")
         else:
             print("WARNING: No step start protocol parts generated")
             print("   This might be expected if the agent workflow doesn't generate step events")

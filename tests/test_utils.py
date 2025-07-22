@@ -349,7 +349,7 @@ class TestAsyncFunctions:
         results = []
         async for result in _process_llm_events("on_llm_start", {}, state):
             results.append(result)
-        assert len(results) == 0  # Should not yield anything
+        assert len(results) >= 1  # Should yield step-start part
         
         # Test on_llm_stream event with AIMessageChunk
         chunk_data = AIMessageChunk(
@@ -372,7 +372,7 @@ class TestAsyncFunctions:
         results = []
         async for result in _process_llm_events("on_llm_end", {}, state):
             results.append(result)
-        assert len(results) == 0  # Should not yield anything
+        assert len(results) >= 1  # Should yield finish step part
     
     @pytest.mark.asyncio
     async def test_process_tool_events(self):
@@ -447,7 +447,9 @@ class TestAsyncFunctions:
     @pytest.mark.asyncio
     async def test_process_custom_events_graph_node(self):
         """Test processing custom events for graph nodes"""
-        from langchain_aisdk_adapter.utils import _process_custom_events
+        from langchain_aisdk_adapter.utils import _process_custom_events, AIStreamState
+        
+        state = AIStreamState()
         
         # Test graph node events
         tags = ["graph:node", "graph:node_type:agent"]
@@ -455,21 +457,21 @@ class TestAsyncFunctions:
         
         # Test on_chain_start
         results = []
-        async for result in _process_custom_events("on_chain_start", "agent_node", tags, data, "run_123"):
+        async for result in _process_custom_events("on_chain_start", "agent_node", tags, data, "run_123", state):
             results.append(result)
         
         assert len(results) >= 1
         
         # Test on_chain_end
         results = []
-        async for result in _process_custom_events("on_chain_end", "agent_node", tags, data, "run_123"):
+        async for result in _process_custom_events("on_chain_end", "agent_node", tags, data, "run_123", state):
             results.append(result)
         
         assert len(results) >= 1
         
         # Test on_chain_error
         results = []
-        async for result in _process_custom_events("on_chain_error", "agent_node", tags, data, "run_123"):
+        async for result in _process_custom_events("on_chain_error", "agent_node", tags, data, "run_123", state):
             results.append(result)
         
         assert len(results) >= 1
@@ -477,7 +479,9 @@ class TestAsyncFunctions:
     @pytest.mark.asyncio
     async def test_process_custom_events_agent_executor(self):
         """Test processing custom events for AgentExecutor"""
-        from langchain_aisdk_adapter.utils import _process_custom_events
+        from langchain_aisdk_adapter.utils import _process_custom_events, AIStreamState
+        
+        state = AIStreamState()
         
         # Test AgentExecutor events
         tags = []
@@ -485,14 +489,14 @@ class TestAsyncFunctions:
         
         # Test on_chain_start
         results = []
-        async for result in _process_custom_events("on_chain_start", "AgentExecutor", tags, data, "run_123"):
+        async for result in _process_custom_events("on_chain_start", "AgentExecutor", tags, data, "run_123", state):
             results.append(result)
         
         assert len(results) >= 1
         
         # Test on_chain_end
         results = []
-        async for result in _process_custom_events("on_chain_end", "AgentExecutor", tags, data, "run_123"):
+        async for result in _process_custom_events("on_chain_end", "AgentExecutor", tags, data, "run_123", state):
             results.append(result)
         
         assert len(results) >= 1

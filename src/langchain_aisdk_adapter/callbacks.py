@@ -32,14 +32,19 @@ class ReasoningUIPart(BaseModel):
     type: Literal['reasoning'] = 'reasoning'
     reasoning: str
 
-class ToolInvocationUIPart(BaseModel):
-    """Tool invocation UI part for displaying tool calls"""
-    type: Literal['tool-invocation'] = 'tool-invocation'
+class ToolInvocation(BaseModel):
+    """Tool invocation object containing call/result information"""
+    state: Literal['partial-call', 'call', 'result']
+    step: Optional[int] = None
     toolCallId: str
     toolName: str
     args: Dict[str, Any]
-    result: Optional[str] = None
-    state: Literal['call', 'result']
+    result: Optional[Any] = None
+
+class ToolInvocationUIPart(BaseModel):
+    """Tool invocation UI part for displaying tool calls"""
+    type: Literal['tool-invocation'] = 'tool-invocation'
+    toolInvocation: ToolInvocation
 
 class SourceUIPart(BaseModel):
     """Source UI part for displaying referenced sources"""

@@ -21,19 +21,23 @@ try:
     from langgraph.graph import StateGraph, END
     from typing_extensions import TypedDict
     LANGGRAPH_AVAILABLE = True
+    
+    class GraphState(TypedDict):
+        """State for the graph"""
+        messages: list
+        current_step: str
+        result: str
 except ImportError:
     LANGGRAPH_AVAILABLE = False
     print("Warning: LangGraph not available, skipping LangGraph tests")
+    
+    # Define a dummy class when LangGraph is not available
+    class GraphState(dict):
+        """Dummy state for when LangGraph is not available"""
+        pass
 
 # Load environment variables
 load_dotenv()
-
-
-class GraphState(TypedDict):
-    """State for the graph"""
-    messages: list
-    current_step: str
-    result: str
 
 
 def create_test_graph(llm):

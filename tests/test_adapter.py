@@ -37,9 +37,12 @@ class TestAISDKAdapter:
         # Create mock stream
         mock_stream = self.mock_langchain_stream(mock_chunks)
         
+        # Create adapter instance
+        adapter = LangChainAdapter()
+        
         # Collect streamed parts
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream):
+        async for part in adapter.to_data_stream_response(mock_stream):
             parts.append(part)
         
         # Verify we got AI SDK protocol strings (including finish parts)
@@ -69,8 +72,11 @@ class TestAISDKAdapter:
         
         mock_stream = self.mock_langchain_stream([mock_chunk])
         
+        # Create adapter instance
+        adapter = LangChainAdapter()
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream):
+        async for part in adapter.to_data_stream_response(mock_stream):
             parts.append(part)
         
         # Should have at least text parts
@@ -90,8 +96,11 @@ class TestAISDKAdapter:
         
         mock_stream = self.mock_langchain_stream(mock_chunks)
         
+        # Create adapter instance
+        adapter = LangChainAdapter()
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream):
+        async for part in adapter.to_data_stream_response(mock_stream):
             parts.append(part)
         
         # Should only get parts for non-empty content
@@ -106,8 +115,11 @@ class TestAISDKAdapter:
         
         mock_stream = self.mock_langchain_stream(mock_chunks)
         
+        # Create adapter instance
+        adapter = LangChainAdapter()
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream):
+        async for part in adapter.to_data_stream_response(mock_stream):
             parts.append(part)
         
         # Verify we got AI SDK protocol strings (may include finish part)
@@ -125,8 +137,11 @@ class TestAISDKAdapter:
         
         mock_stream = self.mock_langchain_stream(mock_chunks)
         
+        # Create adapter instance
+        adapter = LangChainAdapter()
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream):
+        async for part in adapter.to_data_stream_response(mock_stream):
             parts.append(part)
         
         # Should get text part for agent output
@@ -140,8 +155,11 @@ class TestAISDKAdapter:
         
         mock_stream = self.mock_langchain_stream(mock_chunks)
         
+        # Create adapter instance
+        adapter = LangChainAdapter()
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream):
+        async for part in adapter.to_data_stream_response(mock_stream):
             parts.append(part)
         
         # Should pass through pre-formatted strings unchanged
@@ -165,8 +183,11 @@ class TestAISDKAdapter:
         
         mock_stream = self.mock_langchain_stream([langgraph_event])
         
+        # Create adapter instance
+        adapter = LangChainAdapter()
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream):
+        async for part in adapter.to_data_stream_response(mock_stream):
             parts.append(part)
         
         # Should process the nested AIMessageChunk
@@ -201,8 +222,11 @@ class TestAISDKAdapter:
         
         mock_stream = self.mock_langchain_stream([tool_start_event, tool_end_event])
         
+        # Create adapter instance
+        adapter = LangChainAdapter()
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream):
+        async for part in adapter.to_data_stream_response(mock_stream):
             parts.append(part)
         
         # Should have tool call and tool result parts
@@ -224,8 +248,11 @@ class TestAISDKAdapter:
         
         mock_stream = self.mock_langchain_stream([unknown_chunk])
         
+        # Create adapter instance
+        adapter = LangChainAdapter()
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream):
+        async for part in adapter.to_data_stream_response(mock_stream):
             parts.append(part)
         
         # Should handle unknown chunks gracefully (may not produce output)
@@ -247,8 +274,11 @@ class TestAISDKAdapter:
             )
             raise ValueError("Test error")
         
+        # Create adapter instance
+        adapter = LangChainAdapter()
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(error_stream()):
+        async for part in adapter.to_data_stream_response(error_stream()):
             parts.append(part)
         
         # Should have at least the first chunk and an error part
@@ -338,8 +368,11 @@ class TestAISDKAdapter:
         
         mock_stream = self.mock_langchain_stream([tool_chunk])
         
+        # Create adapter instance
+        adapter = LangChainAdapter()
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream):
+        async for part in adapter.to_data_stream_response(mock_stream):
             parts.append(part)
         
         # Should have tool call parts
@@ -372,8 +405,11 @@ class TestAISDKAdapter:
         
         mock_stream = self.mock_langchain_stream([tool_end_event])
         
+        # Create adapter instance
+        adapter = LangChainAdapter()
+        
         parts = []
-        async for part in LangChainAdapter.to_data_stream_response(mock_stream):
+        async for part in adapter.to_data_stream_response(mock_stream):
             parts.append(part)
         
         # Should have source parts (type h) and tool result parts (type a)
