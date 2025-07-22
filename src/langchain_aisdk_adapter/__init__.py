@@ -1,11 +1,10 @@
 """LangChain to AI SDK Adapter.
 
 A Python package that converts LangChain/LangGraph event streams to AI SDK UI Stream Protocol format.
+Provides comprehensive support for tool invocations, step control, and AI SDK callbacks.
 """
 
-from .adapter import to_ui_message_stream
-from .enhanced_adapter import to_data_stream
-from .callbacks import StreamCallbacks
+from .enhanced_adapter import to_data_stream, to_data_stream_response, merge_into_data_stream, DataStreamResponse, DataStreamWriter
 from .ai_sdk_callbacks import (
     BaseAICallbackHandler,
     Message,
@@ -16,6 +15,7 @@ from .ai_sdk_callbacks import (
     StepStartUIPart,
     Attachment,
     LanguageModelUsage,
+    StreamCallbacks,
 )
 from .models import (
     LangChainAIMessageChunk,
@@ -55,9 +55,14 @@ from .models import (
 __version__ = "0.0.1a1"
 
 __all__ = [
-    # Main adapter functions
-    "to_ui_message_stream",
+    # Main adapter functions (AI SDK compatible)
     "to_data_stream",
+    "to_data_stream_response", 
+    "merge_into_data_stream",
+    
+    # Response and Writer classes
+    "DataStreamResponse",
+    "DataStreamWriter",
     
     # Callback systems
     "StreamCallbacks",

@@ -6,7 +6,7 @@ AI SDK Compatible Callback System
 Implements callback handlers that are fully compatible with AI SDK standards.
 """
 
-from typing import Dict, Any, List, Optional, Union, Literal, Protocol
+from typing import Dict, Any, List, Optional, Union, Literal, Protocol, Callable, Awaitable
 from pydantic import BaseModel, Field
 from datetime import datetime
 from abc import ABC, abstractmethod
@@ -99,6 +99,34 @@ class Message(BaseModel):
     annotations: Optional[List[JSONValue]] = None
     parts: List[UIPart] = Field(default_factory=list)
     experimental_attachments: Optional[List[Attachment]] = None
+
+class StreamCallbacks:
+    """Configuration options and helper callback methods for stream lifecycle events.
+    
+    This class provides a simple callback interface for basic stream events,
+    compatible with the original adapter functionality.
+    """
+
+    def __init__(
+        self,
+        on_start: Optional[Callable[[], Union[None, Awaitable[None]]]] = None,
+        on_final: Optional[Callable[[str], Union[None, Awaitable[None]]]] = None,
+        on_token: Optional[Callable[[str], Union[None, Awaitable[None]]]] = None,
+        on_text: Optional[Callable[[str], Union[None, Awaitable[None]]]] = None,
+    ):
+        """Initialize stream callbacks.
+        
+        Args:
+            on_start: Called once when the stream is initialized
+            on_final: Called once when the stream is closed with the final completion message
+            on_token: Called for each tokenized message
+            on_text: Called for each text chunk
+        """
+        self.on_start = on_start
+        self.on_final = on_final
+        self.on_token = on_token
+        self.on_text = on_text
+
 
 class BaseAICallbackHandler(ABC):
     """Abstract base class for AI SDK callbacks with pure hook mode.

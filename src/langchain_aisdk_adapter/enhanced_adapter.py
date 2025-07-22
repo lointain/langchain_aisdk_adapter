@@ -590,3 +590,159 @@ async def to_data_stream(
         # Use enhanced processing with AI SDK callbacks
         async for chunk in processor.process_stream(stream, callbacks):
             yield chunk
+
+
+class DataStreamResponse:
+    """Response wrapper for AI SDK Data Stream Protocol.
+    
+    This class provides a response-like interface for data streams,
+    similar to the Node.js AI SDK's DataStreamResponse.
+    """
+    
+    def __init__(
+        self,
+        stream: AsyncGenerator[UIMessageChunk, None],
+        headers: Optional[Dict[str, str]] = None,
+        status: int = 200
+    ):
+        """Initialize DataStreamResponse.
+        
+        Args:
+            stream: The data stream generator
+            headers: Optional HTTP headers
+            status: HTTP status code
+        """
+        self.stream = stream
+        self.headers = headers or {}
+        self.status = status
+        
+        # Set default headers for streaming
+        if "Content-Type" not in self.headers:
+            self.headers["Content-Type"] = "text/plain; charset=utf-8"
+        if "Cache-Control" not in self.headers:
+            self.headers["Cache-Control"] = "no-cache"
+        if "Connection" not in self.headers:
+            self.headers["Connection"] = "keep-alive"
+    
+    async def __aiter__(self):
+        """Async iterator for the stream."""
+        async for chunk in self.stream:
+            yield chunk
+
+
+async def to_data_stream_response(
+    stream: AsyncIterable[LangChainStreamInput],
+    callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
+    message_id: Optional[str] = None,
+    headers: Optional[Dict[str, str]] = None,
+    status: int = 200
+) -> DataStreamResponse:
+    """Convert LangChain output streams to AI SDK Data Stream Response.
+    
+    This function creates a response wrapper around the data stream,
+    similar to the Node.js AI SDK's toDataStreamResponse function.
+    
+    Args:
+        stream: Input stream from LangChain
+        callbacks: Optional callbacks (StreamCallbacks or BaseAICallbackHandler)
+        message_id: Optional message ID (auto-generated if not provided)
+        headers: Optional HTTP headers
+        status: HTTP status code
+        
+    Returns:
+        DataStreamResponse object containing the converted stream
+        
+    Example:
+        ```python
+        from langchain_aisdk_adapter import to_data_stream_response
+        
+        # Convert LangChain stream to response format
+        response = await to_data_stream_response(langchain_stream)
+        
+        # Use in web framework (e.g., FastAPI)
+        async for chunk in response:
+            yield chunk
+        ```
+    """
+    data_stream = to_data_stream(stream, callbacks, message_id)
+    return DataStreamResponse(data_stream, headers, status)
+
+
+class DataStreamWriter:
+    """Writer interface for merging streams into existing data streams.
+    
+    This class provides a writer interface similar to the Node.js AI SDK's
+    DataStreamWriter for merging multiple streams.
+    """
+    
+    def __init__(self):
+        """Initialize DataStreamWriter."""
+        self._chunks: List[UIMessageChunk] = []
+        self._closed = False
+    
+    async def write(self, chunk: UIMessageChunk) -> None:
+        """Write a chunk to the data stream.
+        
+        Args:
+            chunk: UI message chunk to write
+        """
+        if self._closed:
+            raise RuntimeError("Cannot write to closed stream")
+        self._chunks.append(chunk)
+    
+    async def close(self) -> None:
+        """Close the data stream writer."""
+        self._closed = True
+    
+    def get_chunks(self) -> List[UIMessageChunk]:
+        """Get all written chunks.
+        
+        Returns:
+            List of UI message chunks
+        """
+        return self._chunks.copy()
+    
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.close()
+
+
+async def merge_into_data_stream(
+    stream: AsyncIterable[LangChainStreamInput],
+    data_stream_writer: DataStreamWriter,
+    callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
+    message_id: Optional[str] = None
+) -> None:
+    """Merge LangChain output streams into an existing data stream.
+    
+    This function merges a LangChain stream into an existing data stream writer,
+    similar to the Node.js AI SDK's mergeIntoDataStream function.
+    
+    Args:
+        stream: Input stream from LangChain
+        data_stream_writer: Target data stream writer
+        callbacks: Optional callbacks (StreamCallbacks or BaseAICallbackHandler)
+        message_id: Optional message ID (auto-generated if not provided)
+        
+    Example:
+        ```python
+        from langchain_aisdk_adapter import merge_into_data_stream, DataStreamWriter
+        
+        # Create a data stream writer
+        writer = DataStreamWriter()
+        
+        # Merge LangChain stream into the writer
+        await merge_into_data_stream(langchain_stream, writer)
+        
+        # Get all chunks
+        chunks = writer.get_chunks()
+        ```
+    """
+    data_stream = to_data_stream(stream, callbacks, message_id)
+    
+    async for chunk in data_stream:
+        await data_stream_writer.write(chunk)
