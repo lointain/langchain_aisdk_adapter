@@ -52,6 +52,7 @@ class EnhancedStreamProcessor:
         self.has_text_started = False
         self.tool_completed_in_current_step = False
         self.need_new_step_for_text = False
+        self.llm_generation_complete = False
         
     async def process_stream(
         self,
@@ -68,10 +69,12 @@ class EnhancedStreamProcessor:
             async for event in self._process_langchain_events(stream):
                 yield event
             
-            # Emit final finish-step if there's an active step (for non-tool final steps)
-            if self.current_step_active:
+            # Emit final finish-step if there's an active step and LLM generation is complete
+            # This handles the case where LLM generates only text without tool calls
+            if self.current_step_active and self.llm_generation_complete:
                 yield self._create_finish_step_event()
                 self.current_step_active = False
+                self.llm_generation_complete = False
                 
             # Emit finish event and handle callbacks
             yield self._create_finish_event()
@@ -163,13 +166,12 @@ class EnhancedStreamProcessor:
             yield self._create_text_end_event()
             self.has_text_started = False
         
-        # If no tool calls were made in this step, finish the step immediately
-        # This handles the case where LLM generates only text without tool calls
-        if self.current_step_active and not self.tool_completed_in_current_step:
-            yield self._create_finish_step_event()
-            self.current_step_active = False
-        
-        # If tool calls were made, the step will be finished in _process_intermediate_steps
+        # Mark that LLM generation is complete
+        # We don't finish the step here because we need to wait for all tool calls to complete
+        # The step will be finished either:
+        # 1. In _process_intermediate_steps after all tools are processed
+        # 2. In the final cleanup if no tools were called
+        self.llm_generation_complete = True
         # after all tool outputs are available
     
     async def _handle_tool_start(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
@@ -349,12 +351,13 @@ class EnhancedStreamProcessor:
                         self.tool_completed_in_current_step = True
         
         # After processing all intermediate steps (all tools in this LLM cycle),
-        # finish the current step if we have tool calls
-        if self.tool_completed_in_current_step and self.current_step_active:
+        # finish the current step if we have tool calls and LLM generation is complete
+        if self.tool_completed_in_current_step and self.current_step_active and self.llm_generation_complete:
             yield self._create_finish_step_event()
             self.current_step_active = False
             self.tool_completed_in_current_step = False
             self.need_new_step_for_text = True
+            self.llm_generation_complete = False
     
     async def _handle_text_content(self, text: str) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle text content and emit appropriate events."""
