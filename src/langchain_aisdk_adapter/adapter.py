@@ -22,16 +22,22 @@ def _extract_text_from_ai_message_chunk(chunk: LangChainAIMessageChunk) -> str:
     Returns:
         Extracted text content
     """
-    content = chunk["content"]
+    # Handle both dict-like and object-like chunks
+    if isinstance(chunk, dict):
+        content = chunk.get("content", "")
+    else:
+        # Handle AIMessageChunk object
+        content = getattr(chunk, "content", "")
     
     if isinstance(content, str):
         return content
     
     # Handle complex content (list of content items)
     text_parts = []
-    for item in content:
-        if isinstance(item, dict) and item.get("type") == "text":
-            text_parts.append(item.get("text", ""))
+    if hasattr(content, '__iter__') and not isinstance(content, str):
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                text_parts.append(item.get("text", ""))
     
     return "".join(text_parts)
 

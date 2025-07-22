@@ -20,8 +20,12 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
 
 from langchain_aisdk_adapter import (
-    to_ui_message_stream,
-    StreamCallbacks
+    to_data_stream,
+    BaseAICallbackHandler,
+    Message,
+    TextUIPart,
+    ToolInvocationUIPart,
+    StepStartUIPart
 )
 
 
@@ -60,34 +64,50 @@ def calculate_math(expression: str) -> str:
         return f"Error calculating: {str(e)}"
 
 
-def create_test_callbacks():
-    """Create test callbacks for demonstrating stream processing"""
-    # 
-    def on_start():
+class MyTestCallbackHandler(BaseAICallbackHandler):
+    """Test callback handler for demonstrating AI SDK compatibility"""
+    
+    def __init__(self):
+        self.tools_called = False
+        self.chunk_count = 0
+    
+    async def on_finish(self, message: Message, options: Dict[str, Any]) -> None:
+        """Handle completion events"""
         print("\n" + "="*50)
-        print("STREAM STARTED")
+        print("ON_FINISH CALLBACK RESULTS")
         print("="*50)
-    
-    # def on_token(token: str):
-        # print(f"Token: {repr(token)}")
-    
-    # def on_text(text: str):
-        # print(f"Text chunk: {repr(text)}")
-    
-    def on_final(final_text: str):
-        print("\n" + "="*50)
-        print("STREAM COMPLETED")
-        print("="*50)
-        print(f"\nFinal aggregated text:")
-        print(f"{final_text}")
-        print("\n--- End of Stream ---")
-    
-    return StreamCallbacks(
-        on_start=on_start,
-        # on_token=on_token,
-        # on_text=on_text,
-        on_final=on_final
-    )
+        
+        print(f"\nMessage Content:")
+        print(f"{message.content}")
+        
+        print(f"\nMessage Parts ({len(message.parts or [])}):")
+        tool_invocations = []
+        if message.parts:
+            for i, part in enumerate(message.parts):
+                print(f"  [{i+1}] Type: {part.type}")
+                if isinstance(part, TextUIPart):
+                    print(f"      Text: {part.text[:100]}..." if len(part.text) > 100 else f"      Text: {part.text}")
+                elif isinstance(part, ToolInvocationUIPart):
+                    tool_inv = part.toolInvocation
+                    tool_invocations.append(tool_inv)
+                    print(f"      Tool: {tool_inv.toolName} (state: {tool_inv.state})")
+                    if tool_inv.args:
+                        print(f"      Args: {tool_inv.args}")
+                    if tool_inv.result:
+                        print(f"      Result: {tool_inv.result}")
+                elif isinstance(part, StepStartUIPart):
+                    print(f"      Step started")
+                else:
+                    print(f"      Other part: {part}")
+        
+        print(f"\nTools Called: {'Yes' if tool_invocations else 'No'} ({len(tool_invocations)} tools)")
+
+        print("\n--- Full Message ---")
+        print(message)
+        
+    async def on_error(self, error: Exception) -> None:
+        """Handle error events"""
+        print(f"Error: {str(error)}")
 
 
 async def test_complete_agent_workflow():
@@ -147,7 +167,7 @@ Thought:{agent_scratchpad}"""
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
     
     # Initialize callback handler
-    callbacks = create_test_callbacks()
+    callback_handler = MyTestCallbackHandler()
     
     # Test query that should trigger tool usage
     test_query = "Please use the get_weather tool to check Beijing's weather and use calculate_math tool to compute 15 * 24"
@@ -156,8 +176,8 @@ Thought:{agent_scratchpad}"""
         # Create agent stream using astream_events
         agent_stream = agent_executor.astream_events({"input": test_query}, version="v2")
         
-        # Convert to AI SDK stream using to_ui_message_stream
-        ai_sdk_stream = to_ui_message_stream(agent_stream, callbacks=callbacks)
+        # Convert to AI SDK stream using to_data_stream
+        ai_sdk_stream = to_data_stream(agent_stream, callbacks=callback_handler)
         
         # Stream the response and show AI SDK protocols
         print("\nAI SDK Protocol Output:")
