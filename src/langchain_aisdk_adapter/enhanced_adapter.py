@@ -50,6 +50,8 @@ class EnhancedStreamProcessor:
         self.message_parts: List[UIPart] = []
         self.has_started = False
         self.has_text_started = False
+        self.tool_completed_in_current_step = False
+        self.need_new_step_for_text = False
         
     async def process_stream(
         self,
@@ -161,9 +163,15 @@ class EnhancedStreamProcessor:
             yield self._create_text_end_event()
             self.has_text_started = False
         
-        # Don't emit finish-step here - it will be handled by:
-        # 1. _handle_tool_end for steps with tool calls
-        # 2. Process stream end for final steps without tools
+        # Always finish the current step when chat model ends
+        if self.current_step_active:
+            yield self._create_finish_step_event()
+            self.current_step_active = False
+            
+            # If we had tool calls in this step, prepare for a new step for text generation
+            if self.tool_completed_in_current_step:
+                self.tool_completed_in_current_step = False
+                self.need_new_step_for_text = True
     
     async def _handle_tool_start(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle tool start event."""
@@ -227,6 +235,7 @@ class EnhancedStreamProcessor:
         # Add tool invocation to message parts
         tool_invocation = ToolInvocation(
             state="call",
+            step=self.step_count - 1,  # Set step number
             toolCallId=tool_call_id,
             toolName=name,
             args=inputs
@@ -255,12 +264,11 @@ class EnhancedStreamProcessor:
                     part.toolInvocation.toolCallId == tool_call_id):
                     part.toolInvocation.result = outputs
                     part.toolInvocation.state = "result"
+                    part.toolInvocation.step = self.step_count - 1  # Set step number
                     break
             
-            # Emit finish-step immediately after tool completion (matching real protocol)
-            if self.current_step_active:
-                yield self._create_finish_step_event()
-                self.current_step_active = False
+            # Mark that we have completed a tool call in this step
+            self.tool_completed_in_current_step = True
     
     async def _handle_chain_stream(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle chain stream event that might contain tool information."""
@@ -330,37 +338,54 @@ class EnhancedStreamProcessor:
                         
                         tool_invocation = ToolInvocation(
                             state="result",
+                            step=self.step_count - 1,  # Set step number
                             toolCallId=tool_call_id,
                             toolName=tool_name,
                             args=args_dict,
                             result=result
                         )
                         self.message_parts.append(ToolInvocationUIPart(toolInvocation=tool_invocation))
+                        
+                        # Mark that we have completed a tool call in this step
+                        self.tool_completed_in_current_step = True
     
     async def _handle_text_content(self, text: str) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle text content and emit appropriate events."""
         if not text:
             return
+        
+        # If we need a new step for text generation after tool completion
+        if self.need_new_step_for_text and not self.current_step_active:
+            yield self._create_start_step_event()
+            self.current_step_active = True
+            self.need_new_step_for_text = False
+        
+        # Ensure we have an active step for text generation
+        if not self.current_step_active:
+            yield self._create_start_step_event()
+            self.current_step_active = True
             
         # Start text if not already started
         if not self.has_text_started:
             yield self._create_text_start_event()
             self.has_text_started = True
             
-            # Add text part to message
-            self.message_parts.append(TextUIPart(text=""))
+            # Add text part to message only when we have actual text content
+            # Initialize with the first text content
+            self.message_parts.append(TextUIPart(text=text))
+            self.aggregated_text = text
+        else:
+            # Update existing text part - find the most recent TextUIPart
+            for i in range(len(self.message_parts) - 1, -1, -1):
+                part = self.message_parts[i]
+                if isinstance(part, TextUIPart):
+                    part.text = self.aggregated_text + text
+                    break
+            # Update aggregated text
+            self.aggregated_text += text
         
         # Emit text delta
         yield self._create_text_delta_event(text)
-        
-        # Update aggregated text
-        self.aggregated_text += text
-        
-        # Update text part in message
-        for part in self.message_parts:
-            if isinstance(part, TextUIPart):
-                part.text = self.aggregated_text
-                break
     
     def _extract_text_from_chunk(self, chunk: LangChainAIMessageChunk) -> str:
         """Extract text content from LangChain AI message chunk."""
@@ -398,6 +423,11 @@ class EnhancedStreamProcessor:
         """Create step start event."""
         self.step_count += 1
         self.message_parts.append(StepStartUIPart())
+        
+        # Reset text state for new step
+        self.text_id = f"text-{uuid.uuid4()}"
+        self.has_text_started = False
+        
         return {
             "type": "start-step"
         }
@@ -478,12 +508,23 @@ class EnhancedStreamProcessor:
     
     async def _handle_ai_sdk_callbacks(self, callback_handler: BaseAICallbackHandler) -> None:
         """Handle AI SDK compatible callbacks."""
+        # Filter out empty TextUIParts from message parts
+        filtered_parts = []
+        for part in self.message_parts:
+            if isinstance(part, TextUIPart):
+                # Only include TextUIPart if it has non-empty text
+                if part.text and part.text.strip():
+                    filtered_parts.append(part)
+            else:
+                # Include all non-TextUIPart parts
+                filtered_parts.append(part)
+        
         # Create final message
         message = Message(
             id=self.message_id,
             content=self.aggregated_text,
             role="assistant",
-            parts=self.message_parts
+            parts=filtered_parts
         )
         
         # Create options with usage info (if available)
