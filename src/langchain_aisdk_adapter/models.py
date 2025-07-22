@@ -1,133 +1,266 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-AI SDK Stream Protocol Pydantic Model Definitions
+"""Type definitions for LangChain to AI SDK adapter."""
 
-Based on Vercel AI SDK UI Stream Protocol specification
-Reference: https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol
-"""
-
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field, RootModel
+from typing import Any, Dict, List, Literal, Union
+from typing_extensions import TypedDict, NotRequired
 
 
-class TextPartContent(RootModel[str]):
-    """Text part (0:) - Text content appended to the message"""
-    root: str
+class LangChainMessageContentText(TypedDict):
+    """Text content in LangChain message."""
+    type: Literal["text"]
+    text: str
 
 
-class ReasoningPartContent(RootModel[str]):
-    """Reasoning part (g:) - AI model's reasoning process"""
-    root: str
-
-
-class RedactedReasoningPartContent(BaseModel):
-    """Redacted reasoning part (i:) - Edited reasoning data"""
-    data: str
-
-
-class ReasoningSignaturePartContent(BaseModel):
-    """Reasoning signature part (j:) - Signature verification for reasoning"""
-    signature: str
-
-
-class SourcePartContent(BaseModel):
-    """Source part (h:) - Referenced external resources"""
+class LangChainImageUrlSimple(TypedDict):
+    """Simple image URL format."""
     url: str
-    title: Optional[str] = None
+    detail: NotRequired[Literal["auto", "low", "high"]]
 
 
-class FilePartContent(BaseModel):
-    """File part (k:) - Base64 encoded binary files"""
-    data: str = Field(description="Base64 encoded binary data")
-    mimeType: str = Field(description="MIME type, e.g. 'image/png'")
+class LangChainMessageContentImageUrl(TypedDict):
+    """Image URL content in LangChain message."""
+    type: Literal["image_url"]
+    image_url: Union[str, LangChainImageUrlSimple]
 
 
-class DataPartContent(RootModel[List[Any]]):
-    """Data part (2:) - Custom JSON data array"""
-    root: List[Any]
+class LangChainMessageContentOther(TypedDict, total=False):
+    """Other content types in LangChain message."""
+    type: str
 
 
-class MessageAnnotationPartContent(RootModel[List[Any]]):
-    """Message annotation part (8:) - Metadata annotations for messages"""
-    root: List[Any]
+LangChainMessageContentComplex = Union[
+    LangChainMessageContentText,
+    LangChainMessageContentImageUrl,
+    LangChainMessageContentOther,
+    Dict[str, Any],
+]
+
+LangChainMessageContent = Union[str, List[LangChainMessageContentComplex]]
 
 
-class ErrorPartContent(RootModel[str]):
-    """Error part (3:) - Error information"""
-    root: str
+class LangChainAIMessageChunk(TypedDict):
+    """LangChain AI message chunk."""
+    content: LangChainMessageContent
 
 
-class ToolCallStreamingStartPartContent(BaseModel):
-    """Tool call streaming start part (b:) - Marks the beginning of tool call"""
+class LangChainStreamEventData(TypedDict, total=False):
+    """Data field in LangChain stream event."""
+    chunk: LangChainAIMessageChunk
+
+
+class LangChainStreamEvent(TypedDict):
+    """LangChain stream event (v2 format)."""
+    event: str
+    data: LangChainStreamEventData
+
+
+class ProviderMetadata(TypedDict, total=False):
+    """Provider metadata for UI message chunks."""
+    pass  # Can be extended with specific provider metadata fields
+
+
+class UIMessageChunkTextStart(TypedDict):
+    """UI message chunk for text start."""
+    type: Literal["text-start"]
+    id: str
+    providerMetadata: NotRequired[ProviderMetadata]
+
+
+class UIMessageChunkTextDelta(TypedDict):
+    """UI message chunk for text delta."""
+    type: Literal["text-delta"]
+    id: str
+    delta: str
+    providerMetadata: NotRequired[ProviderMetadata]
+
+
+class UIMessageChunkTextEnd(TypedDict):
+    """UI message chunk for text end."""
+    type: Literal["text-end"]
+    id: str
+    providerMetadata: NotRequired[ProviderMetadata]
+
+
+class UIMessageChunkError(TypedDict):
+    """UI message chunk for error."""
+    type: Literal["error"]
+    errorText: str
+
+
+class UIMessageChunkToolInputStart(TypedDict):
+    """UI message chunk for tool input start."""
+    type: Literal["tool-input-start"]
     toolCallId: str
     toolName: str
+    providerExecuted: NotRequired[bool]
 
 
-class ToolCallDeltaPartContent(BaseModel):
-    """Tool call delta part (c:) - Incremental updates for tool parameters"""
+class UIMessageChunkToolInputDelta(TypedDict):
+    """UI message chunk for tool input delta."""
+    type: Literal["tool-input-delta"]
     toolCallId: str
-    argsTextDelta: str
+    inputTextDelta: str
 
 
-class ToolCallPartContent(BaseModel):
-    """Tool call part (9:) - Complete tool call information"""
+class UIMessageChunkToolInputAvailable(TypedDict):
+    """UI message chunk for tool input available."""
+    type: Literal["tool-input-available"]
     toolCallId: str
     toolName: str
-    args: Dict[str, Any]
+    input: Any
+    providerExecuted: NotRequired[bool]
+    providerMetadata: NotRequired[ProviderMetadata]
 
 
-class ToolResultPartContent(BaseModel):
-    """Tool result part (a:) - Results of tool execution"""
+class UIMessageChunkToolOutputAvailable(TypedDict):
+    """UI message chunk for tool output available."""
+    type: Literal["tool-output-available"]
     toolCallId: str
-    result: Any
+    output: Any
+    providerExecuted: NotRequired[bool]
 
 
-class StartStepPartContent(BaseModel):
-    """Start step part (f:) - Marks the beginning of processing step"""
-    messageId: str
+class UIMessageChunkToolOutputError(TypedDict):
+    """UI message chunk for tool output error."""
+    type: Literal["tool-output-error"]
+    toolCallId: str
+    errorText: str
+    providerExecuted: NotRequired[bool]
 
 
-class UsageInfo(BaseModel):
-    """Token usage statistics information"""
-    promptTokens: int = 0
-    completionTokens: int = 0
+class UIMessageChunkReasoning(TypedDict):
+    """UI message chunk for reasoning."""
+    type: Literal["reasoning"]
+    text: str
+    providerMetadata: NotRequired[ProviderMetadata]
 
 
-class FinishStepPartContent(BaseModel):
-    """Finish step part (e:) - Marks the end of processing step"""
-    finishReason: str
-    usage: UsageInfo
-    isContinued: bool = False
+class UIMessageChunkReasoningStart(TypedDict):
+    """UI message chunk for reasoning start."""
+    type: Literal["reasoning-start"]
+    id: str
+    providerMetadata: NotRequired[ProviderMetadata]
 
 
-class FinishMessagePartContent(BaseModel):
-    """Finish message part (d:) - Marks the completion of entire message"""
-    finishReason: str
-    usage: UsageInfo
+class UIMessageChunkReasoningDelta(TypedDict):
+    """UI message chunk for reasoning delta."""
+    type: Literal["reasoning-delta"]
+    id: str
+    delta: str
+    providerMetadata: NotRequired[ProviderMetadata]
 
 
-# AI SDK Protocol Type Mapping
-# Define AI SDK protocol type IDs and corresponding Pydantic models
-AI_SDK_PROTOCOL_MAP = {
-    "0": TextPartContent,
-    "g": ReasoningPartContent,
-    "i": RedactedReasoningPartContent,
-    "j": ReasoningSignaturePartContent,
-    "h": SourcePartContent,
-    "k": FilePartContent,
-    "2": DataPartContent,
-    "8": MessageAnnotationPartContent,
-    "3": ErrorPartContent,
-    "b": ToolCallStreamingStartPartContent,
-    "c": ToolCallDeltaPartContent,
-    "9": ToolCallPartContent,
-    "a": ToolResultPartContent,
-    "f": StartStepPartContent,
-    "e": FinishStepPartContent,
-    "d": FinishMessagePartContent,
-}
+class UIMessageChunkReasoningEnd(TypedDict):
+    """UI message chunk for reasoning end."""
+    type: Literal["reasoning-end"]
+    id: str
+    providerMetadata: NotRequired[ProviderMetadata]
 
 
-# AI SDK Protocol Prefixes
-AI_SDK_PROTOCOL_PREFIXES = tuple(AI_SDK_PROTOCOL_MAP.keys())
+class UIMessageChunkReasoningPartFinish(TypedDict):
+    """UI message chunk for reasoning part finish."""
+    type: Literal["reasoning-part-finish"]
+
+
+class UIMessageChunkSourceUrl(TypedDict):
+    """UI message chunk for source URL."""
+    type: Literal["source-url"]
+    sourceId: str
+    url: str
+    title: NotRequired[str]
+    providerMetadata: NotRequired[ProviderMetadata]
+
+
+class UIMessageChunkSourceDocument(TypedDict):
+    """UI message chunk for source document."""
+    type: Literal["source-document"]
+    sourceId: str
+    mediaType: str
+    title: str
+    filename: NotRequired[str]
+    providerMetadata: NotRequired[ProviderMetadata]
+
+
+class UIMessageChunkFile(TypedDict):
+    """UI message chunk for file."""
+    type: Literal["file"]
+    url: str
+    mediaType: str
+    providerMetadata: NotRequired[ProviderMetadata]
+
+
+class UIMessageChunkData(TypedDict):
+    """UI message chunk for custom data."""
+    type: str  # Should start with 'data-'
+    id: NotRequired[str]
+    data: Any
+    transient: NotRequired[bool]
+
+
+class UIMessageChunkStartStep(TypedDict):
+    """UI message chunk for start step."""
+    type: Literal["start-step"]
+
+
+class UIMessageChunkFinishStep(TypedDict):
+    """UI message chunk for finish step."""
+    type: Literal["finish-step"]
+
+
+class UIMessageChunkStart(TypedDict):
+    """UI message chunk for start."""
+    type: Literal["start"]
+    messageId: NotRequired[str]
+    messageMetadata: NotRequired[Any]
+
+
+class UIMessageChunkFinish(TypedDict):
+    """UI message chunk for finish."""
+    type: Literal["finish"]
+    messageMetadata: NotRequired[Any]
+
+
+class UIMessageChunkAbort(TypedDict):
+    """UI message chunk for abort."""
+    type: Literal["abort"]
+
+
+class UIMessageChunkMessageMetadata(TypedDict):
+    """UI message chunk for message metadata."""
+    type: Literal["message-metadata"]
+    messageMetadata: Any
+
+
+UIMessageChunk = Union[
+    UIMessageChunkTextStart,
+    UIMessageChunkTextDelta,
+    UIMessageChunkTextEnd,
+    UIMessageChunkError,
+    UIMessageChunkToolInputStart,
+    UIMessageChunkToolInputDelta,
+    UIMessageChunkToolInputAvailable,
+    UIMessageChunkToolOutputAvailable,
+    UIMessageChunkToolOutputError,
+    UIMessageChunkReasoning,
+    UIMessageChunkReasoningStart,
+    UIMessageChunkReasoningDelta,
+    UIMessageChunkReasoningEnd,
+    UIMessageChunkReasoningPartFinish,
+    UIMessageChunkSourceUrl,
+    UIMessageChunkSourceDocument,
+    UIMessageChunkFile,
+    UIMessageChunkData,
+    UIMessageChunkStartStep,
+    UIMessageChunkFinishStep,
+    UIMessageChunkStart,
+    UIMessageChunkFinish,
+    UIMessageChunkAbort,
+    UIMessageChunkMessageMetadata,
+]
+
+
+# Union type for all supported input stream types
+LangChainStreamInput = Union[
+    LangChainStreamEvent,
+    LangChainAIMessageChunk,
+    str,
+]

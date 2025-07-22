@@ -1,10 +1,185 @@
 # LangChain AI SDK Adapter
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![PyPI](https://img.shields.io/pypi/v/langchain-aisdk-adapter.svg)](https://pypi.org/project/langchain-aisdk-adapter/)
+A Python package that converts LangChain/LangGraph event streams to AI SDK UI Stream Protocol format.
 
-A Python package that converts LangChain/LangGraph event streams to [AI SDK UI Stream Protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol) format, enabling seamless integration between LangChain applications and AI SDK UI components.
+## Overview
+
+This adapter allows you to seamlessly integrate LangChain streaming outputs with AI SDK compatible frontends. It converts various LangChain stream formats into the standardized AI SDK UI Message Stream format.
+
+## Supported Stream Types
+
+- **LangChain AI Message Chunks**: Direct output from `model.stream()`
+- **String Streams**: Output from `StringOutputParser` chains
+- **LangChain Stream Events**: LangChain v2 stream events format
+
+## Installation
+
+```bash
+# Install from source
+git clone <repository-url>
+cd langchain_aisdk_adapter
+uv sync
+```
+
+## Quick Start
+
+### Basic Usage
+
+```python
+import asyncio
+from langchain_aisdk_adapter import to_ui_message_stream
+
+# Example with string stream
+async def example():
+    async def mock_stream():
+        chunks = ["Hello", " ", "world", "!"]
+        for chunk in chunks:
+            yield chunk
+    
+    async for ui_chunk in to_ui_message_stream(mock_stream()):
+        print(ui_chunk)
+        # Output:
+        # {'type': 'text-start', 'id': '1'}
+        # {'type': 'text-delta', 'id': '1', 'delta': 'Hello'}
+        # {'type': 'text-delta', 'id': '1', 'delta': ' '}
+        # {'type': 'text-delta', 'id': '1', 'delta': 'world'}
+        # {'type': 'text-delta', 'id': '1', 'delta': '!'}
+        # {'type': 'text-end', 'id': '1'}
+
+asyncio.run(example())
+```
+
+### With LangChain Models
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
+from langchain_aisdk_adapter import to_ui_message_stream
+
+async def chat_example():
+    model = ChatOpenAI(model="gpt-3.5-turbo", streaming=True)
+    messages = [HumanMessage(content="Tell me a joke")]
+    
+    async for ui_chunk in to_ui_message_stream(model.astream(messages)):
+        if ui_chunk["type"] == "text-delta":
+            print(ui_chunk["delta"], end="", flush=True)
+```
+
+### With Callbacks
+
+```python
+from langchain_aisdk_adapter import to_ui_message_stream, StreamCallbacks
+
+async def callback_example():
+    def on_start():
+        print("Stream started!")
+    
+    def on_token(token: str):
+        print(f"Token: {token}")
+    
+    def on_final(completion: str):
+        print(f"Final: {completion}")
+    
+    callbacks = StreamCallbacks(
+        on_start=on_start,
+        on_token=on_token,
+        on_final=on_final
+    )
+    
+    async def mock_stream():
+        yield "Hello world!"
+    
+    async for ui_chunk in to_ui_message_stream(mock_stream(), callbacks=callbacks):
+        print(ui_chunk)
+```
+
+## API Reference
+
+### `to_ui_message_stream(stream, callbacks=None, message_id="1")`
+
+Converts LangChain output streams to AI SDK UI Message Stream format.
+
+**Parameters:**
+- `stream`: AsyncIterable of LangChain stream events, AI message chunks, or strings
+- `callbacks`: Optional StreamCallbacks instance for lifecycle events
+- `message_id`: ID for the generated message chunks (default: "1")
+
+**Returns:**
+- AsyncGenerator yielding UIMessageChunk objects
+
+### `StreamCallbacks`
+
+Configuration class for stream lifecycle callbacks.
+
+**Parameters:**
+- `on_start`: Called once when the stream is initialized
+- `on_token`: Called for each tokenized message
+- `on_text`: Called for each text chunk
+- `on_final`: Called once when the stream is closed with the final completion
+
+## Stream Format Examples
+
+### Input Formats
+
+**String Stream:**
+```python
+["Hello", " ", "world", "!"]
+```
+
+**AI Message Chunks:**
+```python
+[
+    {"content": "Hello"},
+    {"content": [{"type": "text", "text": " world"}]},
+    {"content": "!"}
+]
+```
+
+**Stream Events:**
+```python
+[
+    {"event": "on_chat_model_stream", "data": {"chunk": {"content": "Hello"}}},
+    {"event": "on_chat_model_stream", "data": {"chunk": {"content": " world"}}}
+]
+```
+
+### Output Format
+
+All input formats are converted to:
+```python
+[
+    {"type": "text-start", "id": "1"},
+    {"type": "text-delta", "id": "1", "delta": "Hello"},
+    {"type": "text-delta", "id": "1", "delta": " world"},
+    {"type": "text-delta", "id": "1", "delta": "!"},
+    {"type": "text-end", "id": "1"}
+]
+```
+
+## Examples
+
+See the `examples/` directory for more comprehensive usage examples:
+
+- `basic_usage.py`: Basic adapter functionality
+- `langchain_integration.py`: Real LangChain model integration
+
+## Testing
+
+```bash
+# Run tests
+uv run python -m pytest tests/test_adapter_core.py tests/test_callbacks.py -v
+
+# Run examples
+uv run python examples/basic_usage.py
+```
+
+## License
+
+Apache-2.0
+
+## Contributing
+
+Contributions are welcome! Please ensure all tests pass and follow the existing code style.
 
 ## Features
 
