@@ -291,7 +291,7 @@ const {
 } = useChat({
   api: apiEndpoint.value,
   body: {
-    // message_id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    message_id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     stream_mode: streamMode.value
   },
   onError: (error) => {
@@ -311,37 +311,63 @@ const {
   },
   onFinish: (message) => {
     console.log('Chat finished:', message)
+    console.log('Current mode:', streamMode.value)
     // 滚动到底部
     scrollToBottom()
   },
-  // 自定义流处理来检测错误类型
+  // AI SDK Data Stream Protocol compatible
   streamMode: 'text',
   onChunk: ({ chunk }) => {
-    // 检查是否是错误类型的数据
+    // 处理AI SDK Data Stream Protocol的各种事件类型
     if (chunk && typeof chunk === 'string') {
       try {
         // 尝试解析 SSE 数据
         if (chunk.startsWith('data: ')) {
           const data = JSON.parse(chunk.slice(6))
-          if (data.type === 'error') {
-            // 创建错误消息
-            const errorMessage = {
-              id: `error_${Date.now()}`,
-              role: 'assistant',
-              content: 'An error occurred during processing.',
-              error: true,
-              errorDetails: data.errorText || 'Unknown error'
-            }
-            
-            // 替换最后一条消息（如果是正在生成的消息）
-            const currentMessages = [...messages.value]
-            if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'assistant') {
-              currentMessages[currentMessages.length - 1] = errorMessage
-            } else {
-              currentMessages.push(errorMessage)
-            }
-            setMessages(currentMessages)
-            return // 阻止进一步处理
+          
+          // 处理不同类型的事件
+          switch (data.type) {
+            case 'error':
+              // 创建错误消息
+              const errorMessage = {
+                id: `error_${Date.now()}`,
+                role: 'assistant',
+                content: 'An error occurred during processing.',
+                error: true,
+                errorDetails: data.errorText || 'Unknown error'
+              }
+              
+              // 替换最后一条消息（如果是正在生成的消息）
+              const currentMessages = [...messages.value]
+              if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'assistant') {
+                currentMessages[currentMessages.length - 1] = errorMessage
+              } else {
+                currentMessages.push(errorMessage)
+              }
+              setMessages(currentMessages)
+              return // 阻止进一步处理
+              
+            case 'data':
+              // 处理自定义数据事件（手动模式下的额外信息）
+              console.log('Received custom data:', data.data)
+              break
+              
+            case 'file':
+              // 处理文件事件
+              console.log('Received file:', data.url, data.mediaType)
+              break
+              
+            case 'start':
+              console.log('Stream started with message ID:', data.messageId)
+              break
+              
+            case 'finish':
+              console.log('Stream finished')
+              break
+              
+            default:
+              // 其他事件类型，继续正常处理
+              break
           }
         }
       } catch (e) {

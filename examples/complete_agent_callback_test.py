@@ -163,6 +163,9 @@ Thought:{agent_scratchpad}"""
             options={"auto_events": True}
         )
         
+        # Test emit_file method directly on the stream
+        await ai_sdk_stream.emit_file(url="report.pdf", mediaType="application/pdf")
+        
         # Stream the response and show AI SDK protocols
         print("\nAI SDK Protocol Output:")
         print("-" * 40)
