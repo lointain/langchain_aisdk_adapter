@@ -9,20 +9,20 @@
               LangChain AI SDK Adapter Demo
             </h1>
             <p class="text-sm text-gray-600 mt-1">
-              FastAPI + Vue.js + @ai-sdk/vue 集成示例
+              FastAPI + Vue.js + @ai-sdk/vue Integration Demo
             </p>
           </div>
           <div class="flex items-center gap-4">
             <!-- 模式选择 -->
             <div class="flex items-center gap-2">
-              <label class="text-sm font-medium text-gray-700">模式:</label>
+              <label class="text-sm font-medium text-gray-700">Mode:</label>
               <select 
                 v-model="streamMode" 
                 class="input text-sm px-3 py-1 min-w-0 w-auto"
                 @change="clearMessages"
               >
-                <option value="auto">自动模式</option>
-                <option value="manual">手动模式</option>
+                <option value="auto">Auto Mode</option>
+                <option value="manual">Manual Mode</option>
               </select>
             </div>
             <!-- 状态指示器 -->
@@ -34,7 +34,7 @@
                 ]"
               ></div>
               <span class="text-sm text-gray-600">
-                {{ backendStatus === 'connected' ? '已连接' : '未连接' }}
+                {{ backendStatus === 'connected' ? 'Connected' : 'Disconnected' }}
               </span>
             </div>
           </div>
@@ -45,7 +45,7 @@
     <!-- 主要内容区域 -->
     <main class="container mx-auto px-4 py-6">
       <div class="max-w-4xl mx-auto">
-        <!-- 模式说明卡片 -->
+        <!-- Mode Description Card -->
         <div class="card mb-6">
           <div class="card-body">
             <div class="flex items-start gap-4">
@@ -58,16 +58,16 @@
               </div>
               <div class="flex-1">
                 <h3 class="font-semibold text-gray-900 mb-2">
-                  当前模式: {{ streamMode === 'auto' ? '自动模式' : '手动模式' }}
+                  Current Mode: {{ streamMode === 'auto' ? 'Auto Mode' : 'Manual Mode' }}
                 </h3>
                 <p class="text-sm text-gray-600">
                   <template v-if="streamMode === 'auto'">
-                    使用 <code class="bg-gray-100 px-1 rounded">to_data_stream_response</code> 
-                    自动处理流，适合简单对话场景。线程安全通过实例隔离保证。
+                    Uses <code class="bg-gray-100 px-1 rounded">to_data_stream_response</code> 
+                    for automatic stream processing, suitable for simple conversation scenarios. Thread safety guaranteed through instance isolation.
                   </template>
                   <template v-else>
-                    使用 LangChain 回调精确控制流的每个阶段，适合复杂工作流场景。
-                    线程安全通过实例隔离和上下文管理器保证。
+                    Uses LangChain callbacks for precise control over each stage of the stream, suitable for complex workflow scenarios.
+                    Thread safety guaranteed through instance isolation and context managers.
                   </template>
                 </p>
               </div>
@@ -75,23 +75,23 @@
           </div>
         </div>
 
-        <!-- 聊天界面 -->
+        <!-- Chat Interface -->
         <div class="card">
           <div class="card-header">
             <div class="flex items-center justify-between">
-              <h2 class="text-lg font-semibold text-gray-900">聊天对话</h2>
+              <h2 class="text-lg font-semibold text-gray-900">Chat Conversation</h2>
               <button 
                 @click="clearMessages" 
                 class="btn btn-secondary btn-sm"
                 :disabled="isLoading"
               >
-                清空对话
+                Clear Chat
               </button>
             </div>
           </div>
           
           <div class="card-body">
-            <!-- 消息列表 -->
+            <!-- Message List -->
             <div 
               ref="messagesContainer"
               class="h-96 overflow-y-auto mb-4 p-4 bg-gray-50 rounded-lg"
@@ -100,8 +100,8 @@
                 <svg class="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.959 8.959 0 01-4.906-1.471L3 21l2.529-5.094A8.959 8.959 0 013 12c0-4.418 3.582-8 8-8s8 3.582 8 8z"></path>
                 </svg>
-                <p>开始对话吧！你可以问我任何问题。</p>
-                <p class="text-sm mt-2">我可以查询公司内部员工生日信息。</p>
+                <p>Start chatting! You can ask me anything.</p>
+                <p class="text-sm mt-2">I can query internal employee birthday information.</p>
               </div>
               
               <div v-for="(message, index) in messages" :key="index" class="mb-4">
@@ -114,88 +114,98 @@
                 
                 <!-- AI 消息 -->
                 <div v-else class="flex justify-start">
-                  <div class="max-w-xs lg:max-w-md px-4 py-2 bg-white border rounded-lg shadow-sm">
+                  <div class="max-w-xs lg:max-w-md px-4 py-2 rounded-lg shadow-sm" :class="message.error ? 'bg-red-50 border border-red-200' : 'bg-white border'">
                     <div class="flex items-center gap-2 mb-2">
-                      <div class="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center">
-                        <svg class="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <div class="w-6 h-6 rounded-full flex items-center justify-center" :class="message.error ? 'bg-red-100' : 'bg-green-100'">
+                        <svg v-if="message.error" class="w-3 h-3 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <svg v-else class="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
                         </svg>
                       </div>
-                      <span class="text-xs text-gray-500">AI Assistant</span>
+                      <span class="text-xs" :class="message.error ? 'text-red-600' : 'text-gray-500'">
+                        {{ message.error ? 'Error' : 'AI Assistant' }}
+                      </span>
                     </div>
-                    <div class="whitespace-pre-wrap">{{ message.content }}</div>
+                    <div class="whitespace-pre-wrap" :class="message.error ? 'text-red-700' : ''">
+                      {{ message.content }}
+                    </div>
+                    <div v-if="message.error && message.errorDetails" class="mt-2 p-2 bg-red-100 rounded text-xs text-red-600">
+                      <strong>Error Details:</strong> {{ message.errorDetails }}
+                    </div>
                   </div>
                 </div>
               </div>
               
-              <!-- 加载指示器 -->
+              <!-- Loading Indicator -->
               <div v-if="isLoading" class="flex justify-start">
                 <div class="max-w-xs lg:max-w-md px-4 py-2 bg-white border rounded-lg shadow-sm">
                   <div class="flex items-center gap-2">
                     <div class="loading"></div>
-                    <span class="text-sm text-gray-500">AI 正在思考...</span>
+                    <span class="text-sm text-gray-500">AI is thinking...</span>
                   </div>
                 </div>
               </div>
             </div>
             
-            <!-- 工具信息显示 -->
+            <!-- Tool Information Display -->
             <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <div class="flex items-center gap-2 mb-2">
                 <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                 </svg>
-                <span class="text-sm font-medium text-blue-800">可用工具</span>
+                <span class="text-sm font-medium text-blue-800">Available Tools</span>
               </div>
               <div class="bg-white p-2 rounded border border-blue-100">
                 <div class="flex items-center gap-2">
                   <div class="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span class="text-sm text-gray-700">员工生日查询系统</span>
-                  <span class="text-xs text-gray-500 ml-auto">内部数据</span>
+                  <span class="text-sm text-gray-700">Employee Birthday Query System</span>
+                  <span class="text-xs text-gray-500 ml-auto">Internal Data</span>
                 </div>
-                <p class="text-xs text-gray-600 mt-1 ml-4">查询公司内部员工的生日信息</p>
+                <p class="text-xs text-gray-600 mt-1 ml-4">Query internal employee birthday information</p>
               </div>
             </div>
             
-            <!-- 便捷提问 -->
+            <!-- Quick Questions -->
             <div class="mb-4">
               <div class="flex items-center gap-2 mb-2">
                 <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                 </svg>
-                <span class="text-sm font-medium text-gray-700">快速提问</span>
+                <span class="text-sm font-medium text-gray-700">Quick Questions</span>
               </div>
               <div class="flex flex-wrap gap-2">
                 <button 
-                  @click="quickQuestion('请查询张三的生日信息，并计算与爱因斯坦生日的时间差')"
+                  @click="quickQuestion('Please query Zhang San\'s birthday information and calculate the time difference with Einstein\'s birthday')"
                   class="btn btn-secondary btn-sm"
                   :disabled="isLoading"
                 >
-                  查询张三生日与爱因斯坦生日对比
+                  Compare Zhang San's Birthday with Einstein's
                 </button>
                 <button 
-                  @click="quickQuestion('请获取李四的生日，并告诉我距离爱因斯坦生日有多少天')"
+                  @click="quickQuestion('Please get Li Si\'s birthday and tell me how many days it is from Einstein\'s birthday')"
                   class="btn btn-secondary btn-sm"
                   :disabled="isLoading"
                 >
-                  李四生日与爱因斯坦生日天数差
+                  Days Difference: Li Si vs Einstein
                 </button>
                 <button 
-                  @click="quickQuestion('查询王五的生日信息')"
+                  @click="quickQuestion('Query Wang Wu\'s birthday information')"
                   class="btn btn-secondary btn-sm"
                   :disabled="isLoading"
                 >
-                  查询王五生日
+                  Query Wang Wu's Birthday
                 </button>
               </div>
             </div>
             
-            <!-- 输入区域 -->
+            <!-- Input Area -->
             <form @submit.prevent="sendMessage" class="flex gap-2">
               <input
                 v-model="input"
                 type="text"
-                placeholder="输入你的消息..."
+                placeholder="Enter your message..."
                 class="input flex-1"
                 :disabled="isLoading"
                 @keydown.enter.prevent="sendMessage"
@@ -207,31 +217,31 @@
               >
                 <template v-if="isLoading">
                   <div class="loading"></div>
-                  发送中
+                  Sending
                 </template>
                 <template v-else>
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
                   </svg>
-                  发送
+                  Send
                 </template>
               </button>
             </form>
           </div>
         </div>
         
-        <!-- 技术信息卡片 -->
+        <!-- Technical Features Card -->
         <div class="card mt-6">
           <div class="card-body">
-            <h3 class="font-semibold text-gray-900 mb-3">技术特性</h3>
+            <h3 class="font-semibold text-gray-900 mb-3">Technical Features</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div class="flex items-center gap-2">
                 <div class="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span>线程安全 (实例隔离)</span>
+                <span>Thread Safety (Instance Isolation)</span>
               </div>
               <div class="flex items-center gap-2">
                 <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
-                <span>流式响应</span>
+                <span>Streaming Response</span>
               </div>
               <div class="flex items-center gap-2">
                 <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
@@ -239,15 +249,15 @@
               </div>
               <div class="flex items-center gap-2">
                 <div class="w-2 h-2 bg-orange-500 rounded-full"></div>
-                <span>@ai-sdk/vue 集成</span>
+                <span>@ai-sdk/vue Integration</span>
               </div>
               <div class="flex items-center gap-2">
                 <div class="w-2 h-2 bg-red-500 rounded-full"></div>
-                <span>工具调用 (员工生日查询)</span>
+                <span>Tool Calling (Employee Birthday Query)</span>
               </div>
               <div class="flex items-center gap-2">
                 <div class="w-2 h-2 bg-teal-500 rounded-full"></div>
-                <span>FastAPI 后端</span>
+                <span>FastAPI Backend</span>
               </div>
             </div>
           </div>
@@ -258,13 +268,18 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useChat } from '@ai-sdk/vue'
 
 // 响应式数据
 const streamMode = ref('auto')
 const backendStatus = ref('disconnected')
 const messagesContainer = ref(null)
+
+// 计算API端点
+const apiEndpoint = computed(() => {
+  return streamMode.value === 'auto' ? '/api/chat/auto' : '/api/chat/manual'
+})
 
 // 使用 @ai-sdk/vue 的 useChat hook
 const {
@@ -274,21 +289,65 @@ const {
   isLoading,
   setMessages
 } = useChat({
-  api: () => {
-    // 根据选择的模式返回不同的 API 端点
-    return streamMode.value === 'auto' ? '/api/chat/auto' : '/api/chat/manual'
-  },
+  api: apiEndpoint.value,
   body: {
+    // message_id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     stream_mode: streamMode.value
   },
   onError: (error) => {
     console.error('Chat error:', error)
-    // 可以在这里添加错误处理逻辑
+    
+    // 添加错误消息到聊天记录
+    const errorMessage = {
+      id: `error_${Date.now()}`,
+      role: 'assistant',
+      content: 'Sorry, an error occurred while processing your request.',
+      error: true,
+      errorDetails: error.message || 'Unknown error'
+    }
+    
+    // 将错误消息添加到现有消息中
+    setMessages([...messages.value, errorMessage])
   },
   onFinish: (message) => {
     console.log('Chat finished:', message)
     // 滚动到底部
     scrollToBottom()
+  },
+  // 自定义流处理来检测错误类型
+  streamMode: 'text',
+  onChunk: ({ chunk }) => {
+    // 检查是否是错误类型的数据
+    if (chunk && typeof chunk === 'string') {
+      try {
+        // 尝试解析 SSE 数据
+        if (chunk.startsWith('data: ')) {
+          const data = JSON.parse(chunk.slice(6))
+          if (data.type === 'error') {
+            // 创建错误消息
+            const errorMessage = {
+              id: `error_${Date.now()}`,
+              role: 'assistant',
+              content: 'An error occurred during processing.',
+              error: true,
+              errorDetails: data.errorText || 'Unknown error'
+            }
+            
+            // 替换最后一条消息（如果是正在生成的消息）
+            const currentMessages = [...messages.value]
+            if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'assistant') {
+              currentMessages[currentMessages.length - 1] = errorMessage
+            } else {
+              currentMessages.push(errorMessage)
+            }
+            setMessages(currentMessages)
+            return // 阻止进一步处理
+          }
+        }
+      } catch (e) {
+        // 忽略解析错误，继续正常处理
+      }
+    }
   }
 })
 
@@ -634,5 +693,25 @@ code {
 
 .flex-wrap {
   flex-wrap: wrap;
+}
+
+.bg-red-50 {
+  background-color: #fef2f2;
+}
+
+.bg-red-100 {
+  background-color: #fee2e2;
+}
+
+.border-red-200 {
+  border-color: #fecaca;
+}
+
+.text-red-600 {
+  color: #dc2626;
+}
+
+.text-red-700 {
+  color: #b91c1c;
 }
 </style>

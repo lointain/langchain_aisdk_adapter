@@ -1,10 +1,13 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from contextlib import asynccontextmanager
-import logging
+import asyncio
 import json
-from typing import List, Dict, Any
+import logging
+from contextlib import asynccontextmanager
+from typing import List, Dict, Any, Optional
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from models import ChatRequest, ChatResponse, ErrorResponse, StreamMode
 from agents import create_agent_executor, format_chat_history
@@ -70,6 +73,14 @@ async def health_check():
         "agent_ready": agent_executor is not None
     }
 
+@app.get("/api/health")
+async def api_health_check():
+    """API健康检查端点"""
+    return {
+        "status": "healthy",
+        "agent_ready": agent_executor is not None
+    }
+
 @app.post("/api/chat/auto", response_class=StreamingResponse)
 async def chat_auto_stream(request: ChatRequest):
     """自动流处理模式 - 使用 to_data_stream_response
@@ -82,7 +93,7 @@ async def chat_auto_stream(request: ChatRequest):
     
     try:
         # 格式化聊天历史
-        chat_history = format_chat_history(request.messages[:-1]) if len(request.messages) > 1 else []
+        chat_history = format_chat_history([msg.dict() for msg in request.messages[:-1]]) if len(request.messages) > 1 else []
         user_input = request.messages[-1].content
         
         logger.info(f"Auto stream request: {user_input[:100]}...")
@@ -107,11 +118,23 @@ async def chat_auto_stream(request: ChatRequest):
         
     except Exception as e:
         logger.error(f"Auto stream error: {e}")
-        error_response = ErrorResponse(
-            error="auto_stream_failed",
-            message=f"Auto stream processing failed: {str(e)}"
+        # Return AI SDK compatible error format
+        error_chunk = {
+            "type": "error",
+            "errorText": f"Auto stream processing failed: {str(e)}"
+        }
+        async def error_stream():
+            yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+        
+        return StreamingResponse(
+            error_stream(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
         )
-        raise HTTPException(status_code=500, detail=error_response.dict())
 
 @app.post("/api/chat/manual", response_class=StreamingResponse)
 async def chat_manual_stream(request: ChatRequest):
@@ -125,7 +148,7 @@ async def chat_manual_stream(request: ChatRequest):
     
     try:
         # 格式化聊天历史
-        chat_history = format_chat_history(request.messages[:-1]) if len(request.messages) > 1 else []
+        chat_history = format_chat_history([msg.dict() for msg in request.messages[:-1]]) if len(request.messages) > 1 else []
         user_input = request.messages[-1].content
         
         logger.info(f"Manual stream request: {user_input[:100]}...")
@@ -150,11 +173,23 @@ async def chat_manual_stream(request: ChatRequest):
         
     except Exception as e:
         logger.error(f"Manual stream error: {e}")
-        error_response = ErrorResponse(
-            error="manual_stream_failed",
-            message=f"Manual stream processing failed: {str(e)}"
+        # Return AI SDK compatible error format
+        error_chunk = {
+            "type": "error",
+            "errorText": f"Manual stream processing failed: {str(e)}"
+        }
+        async def error_stream():
+            yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+        
+        return StreamingResponse(
+            error_stream(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
         )
-        raise HTTPException(status_code=500, detail=error_response.dict())
 
 @app.post("/api/chat", response_class=StreamingResponse)
 async def chat_unified(request: ChatRequest):
@@ -183,7 +218,7 @@ async def chat_sync(request: ChatRequest) -> ChatResponse:
     
     try:
         # 格式化聊天历史
-        chat_history = format_chat_history(request.messages[:-1]) if len(request.messages) > 1 else []
+        chat_history = format_chat_history([msg.dict() for msg in request.messages[:-1]]) if len(request.messages) > 1 else []
         user_input = request.messages[-1].content
         
         logger.info(f"Sync request: {user_input[:100]}...")

@@ -9,9 +9,17 @@ from langchain.tools import tool
 import asyncio
 import json
 from datetime import datetime, timezone
+from dotenv import load_dotenv
 
-# Configure OpenAI API
-# os.environ["OPENAI_API_KEY"] = "your-openai-api-key"  # 请在环境变量中设置
+# Load environment variables
+load_dotenv()
+
+# Configure DeepSeek API
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+
+if not DEEPSEEK_API_KEY:
+    raise ValueError("DEEPSEEK_API_KEY environment variable is required")
 
 @tool
 def get_employee_birthday(employee_name: str) -> Dict[str, Any]:
@@ -51,7 +59,7 @@ def create_agent_executor(config: Dict[str, Any] = None) -> AgentExecutor:
     """
     # Default configuration
     default_config = {
-        "model_name": "gpt-3.5-turbo",
+        "model_name": "deepseek-chat",
         "temperature": 0.7,
         "max_tokens": 1000,
         "streaming": True
@@ -60,12 +68,14 @@ def create_agent_executor(config: Dict[str, Any] = None) -> AgentExecutor:
     if config:
         default_config.update(config)
     
-    # Initialize LLM
+    # Initialize LLM with DeepSeek API
     llm = ChatOpenAI(
         model=default_config["model_name"],
         temperature=default_config["temperature"],
         max_tokens=default_config["max_tokens"],
-        streaming=default_config["streaming"]
+        streaming=default_config["streaming"],
+        api_key=DEEPSEEK_API_KEY,
+        base_url=DEEPSEEK_BASE_URL
     )
     
     # Define tools - simplified to only employee birthday tool

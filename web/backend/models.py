@@ -13,11 +13,10 @@ class ChatMessage(BaseModel):
     content: str = Field(..., description="Message content")
 
 class ChatRequest(BaseModel):
-    """Chat request model"""
-    message: str = Field(..., description="User message")
+    """Chat request model - compatible with @ai-sdk/vue useChat format"""
+    messages: List[ChatMessage] = Field(..., description="Messages array from useChat")
     message_id: Optional[str] = Field(None, description="Optional message ID")
     stream_mode: StreamMode = Field(StreamMode.AUTO, description="Stream processing mode")
-    history: List[ChatMessage] = Field(default_factory=list, description="Chat history")
     agent_config: Optional[Dict[str, Any]] = Field(None, description="Agent configuration")
 
 class ChatResponse(BaseModel):

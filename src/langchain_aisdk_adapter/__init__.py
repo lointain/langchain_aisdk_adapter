@@ -5,6 +5,13 @@ Provides comprehensive support for tool invocations, step control, and AI SDK ca
 """
 
 from .adapter import to_data_stream, to_data_stream_response, merge_into_data_stream, DataStreamResponse, DataStreamWriter
+from .manual_stream import (
+    ManualStreamController,
+    StreamMode,
+    manual_stream_context,
+    create_manual_stream,
+    manual_text_stream,
+)
 from .callbacks import (
     BaseAICallbackHandler,
     Message,
@@ -67,6 +74,13 @@ __all__ = [
     # Response and Writer classes
     "DataStreamResponse",
     "DataStreamWriter",
+    
+    # Manual stream control (Solution 1: Instance Isolation + Context Manager)
+    "ManualStreamController",
+    "StreamMode",
+    "manual_stream_context",
+    "create_manual_stream",
+    "manual_text_stream",
     
     # Callback systems
     "StreamCallbacks",
