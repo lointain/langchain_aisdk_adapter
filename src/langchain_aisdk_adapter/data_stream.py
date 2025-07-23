@@ -564,6 +564,7 @@ class DataStreamResponse(StreamingResponse):
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "x-vercel-ai-ui-message-stream": "v1",  # Required by AI SDK v5
         }
         if headers:
             default_headers.update(headers)
