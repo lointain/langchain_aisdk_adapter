@@ -13,7 +13,7 @@ except ImportError:
     LANGCHAIN_AVAILABLE = False
     print("LangChain not installed. Install with: pip install langchain langchain-openai")
 
-from langchain_aisdk_adapter import to_ui_message_stream
+from langchain_aisdk_adapter import to_data_stream
 
 
 async def example_with_chat_model():
@@ -44,7 +44,7 @@ async def example_with_chat_model():
         print("🤖 Asking ChatGPT for a programming joke...\n")
         
         # Stream the response
-        async for ui_chunk in to_ui_message_stream(model.astream(messages)):
+        async for ui_chunk in to_data_stream(model.astream(messages)):
             if ui_chunk["type"] == "text-delta":
                 print(ui_chunk["delta"], end="", flush=True)
             elif ui_chunk["type"] == "text-end":
@@ -74,7 +74,7 @@ async def example_with_string_output_parser():
                 await asyncio.sleep(0.1)
         
         print("📝 Mock chain output:")
-        async for ui_chunk in to_ui_message_stream(mock_chain_stream()):
+        async for ui_chunk in to_data_stream(mock_chain_stream()):
             if ui_chunk["type"] == "text-delta":
                 print(ui_chunk["delta"], end="", flush=True)
             elif ui_chunk["type"] == "text-end":
@@ -90,7 +90,7 @@ async def example_with_string_output_parser():
         print("🔗 Running LangChain chain with StringOutputParser...\n")
         
         # Stream the chain output
-        async for ui_chunk in to_ui_message_stream(
+        async for ui_chunk in to_data_stream(
             chain.astream("Explain what LangChain is in one sentence")
         ):
             if ui_chunk["type"] == "text-delta":
@@ -142,7 +142,7 @@ async def example_with_callbacks_and_real_model():
         
         callbacks = StreamCallbacks()
         print("📝 Mock response with callbacks:")
-        async for ui_chunk in to_ui_message_stream(mock_stream(), callbacks=callbacks):
+        async for ui_chunk in to_data_stream(mock_stream()):
             if ui_chunk["type"] == "text-delta":
                 print(ui_chunk["delta"], end="", flush=True)
         return
@@ -155,9 +155,8 @@ async def example_with_callbacks_and_real_model():
         
         print("🎋 Generating a haiku about AI...\n")
         
-        async for ui_chunk in to_ui_message_stream(
-            model.astream(messages), 
-            callbacks=callbacks
+        async for ui_chunk in to_data_stream(
+            model.astream(messages)
         ):
             if ui_chunk["type"] == "text-delta":
                 print(ui_chunk["delta"], end="", flush=True)
@@ -187,7 +186,7 @@ async def example_stream_events():
             await asyncio.sleep(0.1)
     
     print("📝 Processing stream events:")
-    async for ui_chunk in to_ui_message_stream(mock_stream_events()):
+    async for ui_chunk in to_data_stream(mock_stream_events()):
         if ui_chunk["type"] == "text-delta":
             print(ui_chunk["delta"], end="", flush=True)
         elif ui_chunk["type"] == "text-end":

@@ -27,7 +27,6 @@ from .callbacks import (
     ErrorUIPart,
     Attachment,
     LanguageModelUsage,
-    StreamCallbacks,
 )
 from .models import (
     LangChainAIMessageChunk,
@@ -83,7 +82,6 @@ __all__ = [
     "ManualStreamController",
     
     # Callback systems
-    "StreamCallbacks",
     "BaseAICallbackHandler",
     
     # AI SDK models

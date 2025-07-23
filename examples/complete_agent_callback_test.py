@@ -20,7 +20,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
 
 from langchain_aisdk_adapter import LangChainAdapter
-from langchain_aisdk_adapter.callbacks import StreamCallbacks
+from langchain_aisdk_adapter.callbacks import BaseAICallbackHandler, Message
 
 
 @tool
@@ -58,34 +58,35 @@ def calculate_math(expression: str) -> str:
         return f"Error calculating: {str(e)}"
 
 
-def create_test_callbacks():
-    """Create test callbacks for demonstrating stream processing"""
-    # 
-    def on_start():
+class TestCallbackHandler(BaseAICallbackHandler):
+    """Test callback handler for demonstrating stream processing"""
+    
+    async def on_start(self) -> None:
+        """Called when the stream starts"""
         print("\n" + "="*50)
         print("STREAM STARTED")
         print("="*50)
     
-    # def on_token(token: str):
-        # print(f"Token: {repr(token)}")
-    
-    # def on_text(text: str):
-        # print(f"Text chunk: {repr(text)}")
-    
-    def on_final(final_text: str):
+    async def on_finish(self, message: Message, options: dict) -> None:
+        """Called when the stream finishes"""
         print("\n" + "="*50)
         print("STREAM COMPLETED")
         print("="*50)
-        print(f"\nFinal aggregated text:")
-        print(f"{final_text}")
+        print(f"\nFinal message object:")
+        print(f"Message ID: {message.id}")
+        print(f"Message Role: {message.role}")
+        print(f"Message Content: {message.content}")
+        print(f"Message Parts: {len(message.parts)} parts")
+        print(f"All Message Parts: {message.parts}")
+        for i, part in enumerate(message.parts):
+            print(f"  Part {i}: {part.type} - {getattr(part, 'text', getattr(part, 'content', str(part)))}")
+        print(f"Options: {options}")
         print("\n--- End of Stream ---")
-    
-    return StreamCallbacks(
-        on_start=on_start,
-        # on_token=on_token,
-        # on_text=on_text,
-        on_final=on_final
-    )
+
+
+def create_test_callbacks():
+    """Create test callbacks for demonstrating stream processing"""
+    return TestCallbackHandler()
 
 
 async def test_complete_agent_workflow():

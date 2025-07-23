@@ -3,7 +3,7 @@
 import asyncio
 from typing import AsyncGenerator
 
-from langchain_aisdk_adapter import to_ui_message_stream, StreamCallbacks
+from langchain_aisdk_adapter import to_data_stream, BaseAICallbackHandler
 
 
 # Example 1: Convert string stream (e.g., from StringOutputParser)
@@ -19,7 +19,7 @@ async def example_string_stream():
             await asyncio.sleep(0.1)  # Simulate streaming delay
     
     # Convert to AI SDK format
-    async for ui_chunk in to_ui_message_stream(mock_string_stream()):
+    async for ui_chunk in to_data_stream(mock_string_stream()):
         print(f"UI Chunk: {ui_chunk}")
 
 
@@ -39,7 +39,7 @@ async def example_ai_message_chunks():
             yield chunk
             await asyncio.sleep(0.1)
     
-    async for ui_chunk in to_ui_message_stream(mock_ai_message_stream()):
+    async for ui_chunk in to_data_stream(mock_ai_message_stream()):
         print(f"UI Chunk: {ui_chunk}")
 
 
@@ -68,7 +68,7 @@ async def example_stream_events():
             yield event
             await asyncio.sleep(0.1)
     
-    async for ui_chunk in to_ui_message_stream(mock_stream_events()):
+    async for ui_chunk in to_data_stream(mock_stream_events()):
         print(f"UI Chunk: {ui_chunk}")
 
 
@@ -77,17 +77,13 @@ async def example_with_callbacks():
     """Example of using callbacks with the adapter."""
     print("\n=== Example 4: With Callbacks ===")
     
-    def on_start():
-        print("🚀 Stream started!")
-    
-    def on_token(token: str):
-        print(f"📝 Token received: '{token}'")
-    
-    def on_text(text: str):
-        print(f"📄 Text chunk: '{text}'")
-    
-    def on_final(completion: str):
-        print(f"✅ Final completion: '{completion}'")
+    class TestCallbackHandler(BaseAICallbackHandler):
+        async def on_start(self):
+            print("🚀 Stream started!")
+        
+        async def on_finish(self, message, options):
+            print(f"✅ Final message: '{message.content}'")
+            print(f"✅ Message parts: {len(message.parts)} parts")
     
     async def mock_stream():
         chunks = ["Hello", " ", "callback", " ", "world!"]
@@ -95,15 +91,10 @@ async def example_with_callbacks():
             yield chunk
             await asyncio.sleep(0.1)
     
-    callbacks = StreamCallbacks(
-        on_start=on_start,
-        on_token=on_token,
-        on_text=on_text,
-        on_final=on_final
-    )
+    callbacks = TestCallbackHandler()
     
     print("\nUI Chunks:")
-    async for ui_chunk in to_ui_message_stream(mock_stream(), callbacks=callbacks):
+    async for ui_chunk in to_data_stream(mock_stream(), callbacks=callbacks):
         print(f"  {ui_chunk}")
 
 
@@ -115,7 +106,7 @@ async def example_custom_message_id():
     async def mock_stream():
         yield "Custom ID example"
     
-    async for ui_chunk in to_ui_message_stream(
+    async for ui_chunk in to_data_stream(
         mock_stream(), 
         message_id="custom-message-123"
     ):
@@ -127,30 +118,23 @@ async def example_async_callbacks():
     """Example of using async callbacks."""
     print("\n=== Example 6: Async Callbacks ===")
     
-    async def async_on_start():
-        await asyncio.sleep(0.01)
-        print("🚀 Async stream started!")
-    
-    async def async_on_token(token: str):
-        await asyncio.sleep(0.01)
-        print(f"📝 Async token: '{token}'")
-    
-    async def async_on_final(completion: str):
-        await asyncio.sleep(0.01)
-        print(f"✅ Async final: '{completion}'")
+    class AsyncCallbackHandler(BaseAICallbackHandler):
+        async def on_start(self):
+            await asyncio.sleep(0.01)
+            print("🚀 Async stream started!")
+        
+        async def on_finish(self, message, options):
+            await asyncio.sleep(0.01)
+            print(f"✅ Async final: '{message.content}'")
     
     async def mock_stream():
         yield "Async"
         yield " callbacks"
         yield " work!"
     
-    callbacks = StreamCallbacks(
-        on_start=async_on_start,
-        on_token=async_on_token,
-        on_final=async_on_final
-    )
+    callbacks = AsyncCallbackHandler()
     
-    async for ui_chunk in to_ui_message_stream(mock_stream(), callbacks=callbacks):
+    async for ui_chunk in to_data_stream(mock_stream(), callbacks=callbacks):
         print(f"  UI Chunk: {ui_chunk}")
 
 

@@ -48,7 +48,6 @@ from .models import (
 )
 from .callbacks import (
     BaseAICallbackHandler,
-    StreamCallbacks,
     CallbacksTransformer,
     Message,
     UIPart,
@@ -123,7 +122,7 @@ class StreamProcessor:
         self,
         message_id: str,
         auto_events: bool = True,
-        callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None
+        callbacks: Optional[BaseAICallbackHandler] = None
     ):
         self.message_id = message_id
         self.auto_events = auto_events
@@ -136,9 +135,12 @@ class StreamProcessor:
     async def process_stream(
         self,
         stream: AsyncIterable[LangChainStreamInput],
-        callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
+        callbacks: Optional[BaseAICallbackHandler] = None,
     ) -> AsyncGenerator[UIMessageChunk, None]:
         """Process LangChain stream and generate AI SDK compatible events."""
+        
+        # Use passed callbacks or fallback to instance callbacks
+        active_callbacks = callbacks or self.callbacks
         
         # Initialize state variables
         self.current_step_active = False
@@ -171,12 +173,12 @@ class StreamProcessor:
             yield self._create_finish_event()
             
             # Handle AI SDK callbacks if provided
-            if isinstance(callbacks, BaseAICallbackHandler):
-                await self._handle_ai_sdk_callbacks(callbacks)
+            if isinstance(active_callbacks, BaseAICallbackHandler):
+                await self._handle_ai_sdk_callbacks(active_callbacks)
                 
         except Exception as e:
-            if isinstance(callbacks, BaseAICallbackHandler):
-                await callbacks.on_error(e)
+            if isinstance(active_callbacks, BaseAICallbackHandler):
+                await active_callbacks.on_error(e)
             raise
     
     async def _process_langchain_events(
@@ -265,21 +267,11 @@ class StreamProcessor:
         }
         return chunk
     
-    async def _create_finish_chunk(self) -> UIMessageChunkFinish:
-        """Create finish chunk and trigger callbacks."""
-        chunk = {
+    def _create_finish_chunk(self) -> UIMessageChunkFinish:
+        """Create finish chunk."""
+        return {
             "type": "finish"
         }
-        
-        # Trigger callbacks
-        if self.callbacks:
-            message = self.message_builder.build_message()
-            if hasattr(self.callbacks, 'on_final') and self.callbacks.on_final:
-                await self._call_callback(self.callbacks.on_final, message.content, message)
-            elif hasattr(self.callbacks, 'on_finish'):
-                await self._call_callback(self.callbacks.on_finish, message, {})
-        
-        return chunk
     
     def _create_error_chunk(self, error_text: str) -> UIMessageChunkError:
         """Create error chunk."""
@@ -736,7 +728,7 @@ class LangChainAdapter:
     @staticmethod
     async def to_data_stream_response(
         stream: AsyncIterable[LangChainStreamInput],
-        callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
+        callbacks: Optional[BaseAICallbackHandler] = None,
         message_id: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
         status: int = 200,
@@ -770,7 +762,7 @@ class LangChainAdapter:
     @staticmethod
     async def to_data_stream(
         stream: AsyncIterable[LangChainStreamInput],
-        callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
+        callbacks: Optional[BaseAICallbackHandler] = None,
         message_id: Optional[str] = None,
         options: Optional[Dict[str, Any]] = None
     ) -> AsyncGenerator[UIMessageChunk, None]:
@@ -805,7 +797,7 @@ class LangChainAdapter:
     async def merge_into_data_stream(
         stream: AsyncIterable[LangChainStreamInput],
         data_stream_writer: "DataStreamWriter",
-        callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
+        callbacks: Optional[BaseAICallbackHandler] = None,
         message_id: Optional[str] = None,
         options: Optional[Dict[str, Any]] = None
     ) -> None:
@@ -834,7 +826,7 @@ class LangChainAdapter:
 # Legacy function for backward compatibility
 async def to_data_stream(
     stream: AsyncIterable[LangChainStreamInput],
-    callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
+    callbacks: Optional[BaseAICallbackHandler] = None,
     message_id: Optional[str] = None,
 ) -> AsyncGenerator[UIMessageChunk, None]:
     """Legacy function - use LangChainAdapter.to_data_stream instead."""
@@ -901,7 +893,7 @@ class DataStreamResponse(StreamingResponse):
 
 async def to_data_stream_response(
     stream: AsyncIterable[LangChainStreamInput],
-    callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
+    callbacks: Optional[BaseAICallbackHandler] = None,
     message_id: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
     status: int = 200
@@ -913,7 +905,7 @@ async def to_data_stream_response(
     
     Args:
         stream: Input stream from LangChain
-        callbacks: Optional callbacks (StreamCallbacks or BaseAICallbackHandler)
+        callbacks: Optional callbacks (BaseAICallbackHandler)
         message_id: Optional message ID (auto-generated if not provided)
         headers: Optional HTTP headers
         status: HTTP status code
@@ -994,7 +986,7 @@ class DataStreamWriter:
 async def merge_into_data_stream(
     stream: AsyncIterable[LangChainStreamInput],
     data_stream_writer: DataStreamWriter,
-    callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
+    callbacks: Optional[BaseAICallbackHandler] = None,
     message_id: Optional[str] = None
 ) -> None:
     """Merge LangChain output streams into an existing data stream.
@@ -1005,7 +997,7 @@ async def merge_into_data_stream(
     Args:
         stream: Input stream from LangChain
         data_stream_writer: Target data stream writer
-        callbacks: Optional callbacks (StreamCallbacks or BaseAICallbackHandler)
+        callbacks: Optional callbacks (BaseAICallbackHandler)
         message_id: Optional message ID (auto-generated if not provided)
         
     Example:
