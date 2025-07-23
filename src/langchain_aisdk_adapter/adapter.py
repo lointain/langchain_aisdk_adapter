@@ -73,28 +73,51 @@ class MessageBuilder:
         self._lock = asyncio.Lock()
 
     async def add_chunk(self, chunk: UIMessageChunk) -> None:
-        """Add a UIMessageChunk and update the message state."""
+        """Add a UIMessageChunk and update the message state.
+        
+        This method processes all types of UIMessageChunk and converts them to appropriate UIPart objects.
+        It ensures that parts are accumulated regardless of auto_events setting.
+        """
         async with self._lock:
-            # Update content based on chunk type
-            if chunk.get("type") == "start-step":
-                # Add step start part
-                self.parts.append(StepStartUIPart(
-                    type="step-start"
-                ))
-            elif chunk.get("type") == "text-delta":
-                self.content += chunk.get("delta", "")
-                # Add text part
-                self.parts.append(TextUIPart(
-                    type="text",
-                    text=chunk.get("delta", "")
-                ))
-            elif chunk.get("type") == "tool-input-available":
-                # Add tool invocation part
+            chunk_type = chunk.get("type")
+            
+            # Handle step-related chunks
+            if chunk_type == "start-step":
+                self.parts.append(StepStartUIPart(type="step-start"))
+            
+            # Handle text-related chunks
+            elif chunk_type == "text-start":
+                # Text start doesn't create a part immediately, wait for content
+                pass
+            elif chunk_type == "text-delta":
+                delta = chunk.get("textDelta", chunk.get("delta", ""))
+                self.content += delta
+                # Don't create TextUIPart here, wait for text-end
+                pass
+            elif chunk_type == "text-end":
+                # Create TextUIPart with the complete text
+                text = chunk.get("text", "")
+                if text:
+                    self.parts.append(TextUIPart(type="text", text=text))
+            
+            # Handle tool-related chunks
+            elif chunk_type == "tool-input-start":
+                # Tool input start doesn't create a part immediately
+                pass
+            elif chunk_type == "tool-input-delta":
+                # Tool input delta doesn't create a part immediately
+                pass
+            elif chunk_type == "tool-input-available":
+                # Create tool invocation part
                 tool_input = chunk.get("input", {})
-                # Ensure args is always a dictionary
                 args_dict = tool_input if isinstance(tool_input, dict) else {"input": tool_input}
+                
+                # Calculate step number based on existing tool invocations
+                step = sum(1 for part in self.parts if hasattr(part, 'toolInvocation'))
+                
                 tool_invocation = ToolInvocation(
                     state="call",
+                    step=step,
                     toolCallId=chunk.get("toolCallId", ""),
                     toolName=chunk.get("toolName", ""),
                     args=args_dict
@@ -103,7 +126,7 @@ class MessageBuilder:
                     type="tool-invocation",
                     toolInvocation=tool_invocation
                 ))
-            elif chunk.get("type") == "tool-output-available":
+            elif chunk_type == "tool-output-available":
                 # Update existing tool invocation with result
                 tool_call_id = chunk.get("toolCallId", "")
                 for part in self.parts:
@@ -112,6 +135,36 @@ class MessageBuilder:
                         part.toolInvocation.state = "result"
                         part.toolInvocation.result = chunk.get("output")
                         break
+            elif chunk_type == "tool-output-error":
+                # Update existing tool invocation with error
+                tool_call_id = chunk.get("toolCallId", "")
+                for part in self.parts:
+                    if (hasattr(part, 'toolInvocation') and 
+                        part.toolInvocation.toolCallId == tool_call_id):
+                        part.toolInvocation.state = "error"
+                        part.toolInvocation.result = {"error": chunk.get("errorText", "Unknown error")}
+                        break
+            
+            # Handle reasoning chunks (if supported in the future)
+            elif chunk_type in ["reasoning", "reasoning-start", "reasoning-delta", "reasoning-end"]:
+                # For now, treat reasoning as text content
+                if chunk_type == "reasoning":
+                    reasoning_text = chunk.get("text", "")
+                    if reasoning_text:
+                        self.content += reasoning_text
+                        self.parts.append(TextUIPart(type="text", text=reasoning_text))
+            
+            # Handle error chunks
+            elif chunk_type == "error":
+                # Add error as text content for now
+                error_text = chunk.get("errorText", "Error occurred")
+                self.content += f"\n[Error: {error_text}]"
+                self.parts.append(TextUIPart(type="text", text=f"\n[Error: {error_text}]"))
+            
+            # Handle other chunk types (start, finish, etc.)
+            elif chunk_type in ["start", "finish", "finish-step", "abort"]:
+                # These don't create parts but are important for protocol flow
+                pass
 
     def build_message(self) -> Message:
         """Build the final Message object."""
@@ -164,31 +217,39 @@ class StreamProcessor:
         self.aggregated_text = ""
         
         try:
-            # Emit start event
+            # Create and process start event
             start_chunk = self._create_start_event()
             await self.message_builder.add_chunk(start_chunk)
-            yield start_chunk
+            # Emit start event only if auto_events is True
+            if self.auto_events:
+                yield start_chunk
             
             # Process stream events
             async for event in self._process_langchain_events(stream):
+                # Always accumulate parts regardless of auto_events setting
                 await self.message_builder.add_chunk(event)
-                yield event
+                # Only yield events if auto_events is True
+                if self.auto_events:
+                    yield event
             
-            # Emit final finish-step if there's an active step and LLM generation is complete
+            # Create and process final finish-step if there's an active step and LLM generation is complete
             # This handles the case where LLM generates only text without tool calls
             if self.current_step_active and self.llm_generation_complete:
                 finish_step_chunk = self._create_finish_step_event()
                 await self.message_builder.add_chunk(finish_step_chunk)
-                yield finish_step_chunk
+                if self.auto_events:
+                    yield finish_step_chunk
                 self.current_step_active = False
                 self.llm_generation_complete = False
                 
-            # Emit finish event and handle callbacks
+            # Create and process finish event
             finish_chunk = self._create_finish_event()
             await self.message_builder.add_chunk(finish_chunk)
-            yield finish_chunk
+            # Emit finish event only if auto_events is True
+            if self.auto_events:
+                yield finish_chunk
             
-            # Handle AI SDK callbacks if provided
+            # Always handle AI SDK callbacks if provided, regardless of auto_events
             if isinstance(active_callbacks, BaseAICallbackHandler):
                 await self._handle_ai_sdk_callbacks(active_callbacks)
                 
@@ -738,6 +799,208 @@ class StreamProcessor:
         await callback_handler.on_finish(message, options)
 
 
+class DataStreamWithEmitters:
+    """Data stream wrapper that provides emit methods for manual control.
+    
+    This class wraps an AsyncGenerator and provides emit_* methods
+    for manual event emission, allowing direct method calls on the stream object.
+    """
+    
+    def __init__(
+        self,
+        stream_generator: AsyncGenerator[UIMessageChunk, None],
+        message_id: str,
+        auto_close: bool = True
+    ):
+        self._stream_generator = stream_generator
+        self._message_id = message_id
+        self._manual_queue: asyncio.Queue = asyncio.Queue()
+        self._closed = False
+        self._stream_started = False
+        self._auto_close = auto_close
+    
+    async def emit_file(
+        self, 
+        url: str,
+        mediaType: str,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a file chunk."""
+        from .models import UIMessageChunkFile
+        chunk = UIMessageChunkFile(
+            type="file",
+            messageId=message_id or self._message_id,
+            url=url,
+            mediaType=mediaType
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_data(
+        self, 
+        data: Dict[str, Any],
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a data chunk."""
+        from .models import UIMessageChunkData
+        chunk = UIMessageChunkData(
+            type="data",
+            messageId=message_id or self._message_id,
+            data=data
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_source_url(
+        self, 
+        url: str,
+        description: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a source-url chunk."""
+        from .models import UIMessageChunkSourceUrl
+        chunk = UIMessageChunkSourceUrl(
+            type="source-url",
+            messageId=message_id or self._message_id,
+            url=url,
+            description=description
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_source_document(
+        self, 
+        source_id: str,
+        media_type: str,
+        title: str,
+        filename: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a source-document chunk."""
+        from .models import UIMessageChunkSourceDocument
+        chunk = UIMessageChunkSourceDocument(
+            type="source-document",
+            messageId=message_id or self._message_id,
+            sourceId=source_id,
+            mediaType=media_type,
+            title=title,
+            filename=filename
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_reasoning(
+        self, 
+        text: str,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a reasoning chunk."""
+        from .models import UIMessageChunkReasoning
+        chunk = UIMessageChunkReasoning(
+            type="reasoning",
+            messageId=message_id or self._message_id,
+            text=text
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_error(
+        self, 
+        error_text: str,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit an error chunk."""
+        from .models import UIMessageChunkError
+        chunk = UIMessageChunkError(
+            type="error",
+            messageId=message_id or self._message_id,
+            errorText=error_text
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def _emit_manual_chunk(self, chunk: UIMessageChunk) -> None:
+        """Emit a manual chunk to the queue."""
+        if self._closed:
+            raise RuntimeError("Cannot emit to closed stream")
+        await self._manual_queue.put(chunk)
+    
+    async def __aiter__(self):
+        """Async iterator that merges automatic and manual chunks."""
+        # Use a queue to merge both streams
+        merged_queue: asyncio.Queue = asyncio.Queue()
+        
+        async def auto_producer():
+            try:
+                async for chunk in self._stream_generator:
+                    await merged_queue.put(("auto", chunk))
+            except Exception as e:
+                await merged_queue.put(("error", e))
+            finally:
+                await merged_queue.put(("auto_end", None))
+        
+        async def manual_producer():
+            try:
+                while not self._closed:
+                    try:
+                        chunk = await asyncio.wait_for(self._manual_queue.get(), timeout=0.1)
+                        if chunk is None:
+                            break
+                        await merged_queue.put(("manual", chunk))
+                    except asyncio.TimeoutError:
+                        # If auto stream has ended and auto_close is True, end manual stream too
+                        if auto_task.done() and self._auto_close:
+                            break
+                        continue
+            except Exception as e:
+                await merged_queue.put(("error", e))
+            finally:
+                await merged_queue.put(("manual_end", None))
+        
+        # Start both producers
+        auto_task = asyncio.create_task(auto_producer())
+        manual_task = asyncio.create_task(manual_producer())
+        
+        auto_ended = False
+        manual_ended = False
+        
+        try:
+            while not (auto_ended and manual_ended):
+                try:
+                    source, chunk = await asyncio.wait_for(merged_queue.get(), timeout=1.0)
+                    
+                    if source == "auto_end":
+                        auto_ended = True
+                        continue
+                    elif source == "manual_end":
+                        manual_ended = True
+                        continue
+                    elif source == "error":
+                        # Log error but continue
+                        continue
+                    elif source in ("auto", "manual"):
+                        yield chunk
+                        
+                except asyncio.TimeoutError:
+                    # Check if both tasks are done
+                    if auto_task.done() and manual_task.done():
+                        break
+                    continue
+        finally:
+            # Clean up tasks
+            if not auto_task.done():
+                auto_task.cancel()
+            if not manual_task.done():
+                manual_task.cancel()
+            
+            # Wait for tasks to complete
+            try:
+                await asyncio.gather(auto_task, manual_task, return_exceptions=True)
+            except Exception:
+                pass
+    
+
+    
+    async def close(self):
+        """Close the stream."""
+        self._closed = True
+        await self._manual_queue.put(None)
+
+
 class LangChainAdapter:
     """LangChain to AI SDK adapter providing three core methods."""
     
@@ -776,13 +1039,13 @@ class LangChainAdapter:
         )
     
     @staticmethod
-    async def to_data_stream(
+    def to_data_stream(
         stream: AsyncIterable[LangChainStreamInput],
         callbacks: Optional[BaseAICallbackHandler] = None,
         message_id: Optional[str] = None,
         options: Optional[Dict[str, Any]] = None
-    ) -> AsyncGenerator[UIMessageChunk, None]:
-        """Convert LangChain stream to UIMessageChunk generator.
+    ) -> DataStreamWithEmitters:
+        """Convert LangChain stream to DataStreamWithEmitters.
         
         Args:
             stream: LangChain async stream from astream_events()
@@ -791,11 +1054,12 @@ class LangChainAdapter:
             options: Control options (auto_events, emit_start, emit_finish, etc.)
         
         Returns:
-            AsyncGenerator[UIMessageChunk, None]: Stream of UI message chunks
+            DataStreamWithEmitters: Stream object with emit methods
         """
         # Parse options
         opts = options or {}
         auto_events = opts.get("auto_events", True)
+        auto_close = opts.get("auto_close", True)
         message_id = message_id or str(uuid.uuid4())
         
         # Create processor
@@ -805,9 +1069,13 @@ class LangChainAdapter:
             callbacks=callbacks
         )
         
-        # Process and yield chunks
-        async for chunk in processor.process_stream(stream):
-            yield chunk
+        # Create the async generator
+        async def stream_generator():
+            async for chunk in processor.process_stream(stream):
+                yield chunk
+        
+        # Return wrapped stream with emit methods
+        return DataStreamWithEmitters(stream_generator(), message_id, auto_close)
     
     @staticmethod
     async def merge_into_data_stream(
@@ -911,6 +1179,7 @@ async def to_data_stream_response(
     stream: AsyncIterable[LangChainStreamInput],
     callbacks: Optional[BaseAICallbackHandler] = None,
     message_id: Optional[str] = None,
+    options: Optional[Dict[str, Any]] = None,
     headers: Optional[Dict[str, str]] = None,
     status: int = 200
 ) -> DataStreamResponse:
@@ -923,6 +1192,7 @@ async def to_data_stream_response(
         stream: Input stream from LangChain
         callbacks: Optional callbacks (BaseAICallbackHandler)
         message_id: Optional message ID (auto-generated if not provided)
+        options: Control options (auto_events, auto_close, emit_start, emit_finish, etc.)
         headers: Optional HTTP headers
         status: HTTP status code
         
@@ -941,7 +1211,7 @@ async def to_data_stream_response(
             yield chunk
         ```
     """
-    data_stream = to_data_stream(stream, callbacks, message_id)
+    data_stream = to_data_stream(stream, callbacks, message_id, options)
     return DataStreamResponse(data_stream, headers, status)
 
 
