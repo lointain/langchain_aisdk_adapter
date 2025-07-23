@@ -1,17 +1,18 @@
-"""LangChain to AI SDK Adapter.
+"""LangChain to AI SDK Adapter - V1 Implementation.
 
-A Python package that converts LangChain/LangGraph event streams to AI SDK UI Stream Protocol format.
-Provides comprehensive support for tool invocations, step control, and AI SDK callbacks.
+This package provides adapters to convert LangChain streaming outputs
+to AI SDK compatible data streams with full protocol support.
 """
 
-from .adapter import to_data_stream, to_data_stream_response, merge_into_data_stream, DataStreamResponse, DataStreamWriter
-from .manual_stream import (
-    ManualStreamController,
-    StreamMode,
-    manual_stream_context,
-    create_manual_stream,
-    manual_text_stream,
+from .adapter import (
+    LangChainAdapter,
+    DataStreamResponse,
+    DataStreamWriter,
+    to_data_stream,  # Legacy compatibility
+    to_data_stream_response,
+    merge_into_data_stream
 )
+from .manual_stream import ManualStreamController
 from .callbacks import (
     BaseAICallbackHandler,
     Message,
@@ -66,8 +67,11 @@ from .models import (
 __version__ = "0.0.1a1"
 
 __all__ = [
+    # Main adapter class (V1 Implementation)
+    "LangChainAdapter",
+    
     # Main adapter functions (AI SDK compatible)
-    "to_data_stream",
+    "to_data_stream",  # Legacy compatibility
     "to_data_stream_response", 
     "merge_into_data_stream",
     
@@ -75,12 +79,8 @@ __all__ = [
     "DataStreamResponse",
     "DataStreamWriter",
     
-    # Manual stream control (Solution 1: Instance Isolation + Context Manager)
+    # Manual stream control
     "ManualStreamController",
-    "StreamMode",
-    "manual_stream_context",
-    "create_manual_stream",
-    "manual_text_stream",
     
     # Callback systems
     "StreamCallbacks",

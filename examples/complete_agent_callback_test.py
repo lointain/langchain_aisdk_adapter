@@ -19,10 +19,8 @@ from langchain.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
 
-from langchain_aisdk_adapter import (
-    to_ui_message_stream,
-    StreamCallbacks
-)
+from langchain_aisdk_adapter import LangChainAdapter
+from langchain_aisdk_adapter.callbacks import StreamCallbacks
 
 
 @tool
@@ -156,8 +154,13 @@ Thought:{agent_scratchpad}"""
         # Create agent stream using astream_events
         agent_stream = agent_executor.astream_events({"input": test_query}, version="v2")
         
-        # Convert to AI SDK stream using to_ui_message_stream
-        ai_sdk_stream = to_ui_message_stream(agent_stream, callbacks=callbacks)
+        # Convert to AI SDK stream using LangChainAdapter.to_data_stream
+        ai_sdk_stream = LangChainAdapter.to_data_stream(
+            agent_stream,
+            callbacks=callbacks,
+            message_id="test-message-001",
+            options={"auto_events": True}
+        )
         
         # Stream the response and show AI SDK protocols
         print("\nAI SDK Protocol Output:")

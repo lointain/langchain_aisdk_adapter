@@ -224,6 +224,19 @@ class UIMessageChunkAbort(TypedDict):
     type: Literal["abort"]
 
 
+class UIMessageChunkMessageStart(TypedDict):
+    """UI message chunk for message start."""
+    type: Literal["message-start"]
+    role: str
+    messageId: NotRequired[str]
+
+
+class UIMessageChunkMessageEnd(TypedDict):
+    """UI message chunk for message end."""
+    type: Literal["message-end"]
+    messageId: NotRequired[str]
+
+
 class UIMessageChunkMessageMetadata(TypedDict):
     """UI message chunk for message metadata."""
     type: Literal["message-metadata"]
@@ -253,6 +266,8 @@ UIMessageChunk = Union[
     UIMessageChunkFinishStep,
     UIMessageChunkStart,
     UIMessageChunkFinish,
+    UIMessageChunkMessageStart,
+    UIMessageChunkMessageEnd,
     UIMessageChunkAbort,
     UIMessageChunkMessageMetadata,
 ]

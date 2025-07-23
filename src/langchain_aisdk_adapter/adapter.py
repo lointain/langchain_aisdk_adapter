@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Enhanced LangChain to AI SDK adapter implementation.
+LangChain to AI SDK Adapter - V1 Implementation
 
-This module provides a comprehensive adapter that supports:
-- Tool invocation events (tool-input-start, tool-input-available, tool-output-available)
-- Step control events (start-step, finish-step)
-- Stream control events (start, finish)
-- Complete AI SDK UI Stream Protocol compatibility
+This module provides functionality to convert LangChain output streams
+to AI SDK Data Stream Protocol compatible streams according to the v1 specification.
 """
 
 import asyncio
 import json
 import uuid
-from typing import AsyncGenerator, AsyncIterable, Optional, Union, Dict, Any, List
+from typing import (
+    Any, Dict, List, Optional, Union, AsyncGenerator, AsyncIterable,
+    Callable, Awaitable, Tuple
+)
+from fastapi.responses import StreamingResponse
+from datetime import datetime
 
-from .callbacks import CallbacksTransformer, StreamCallbacks, BaseAICallbackHandler, Message, UIPart, TextUIPart, ToolInvocationUIPart, ToolInvocation, StepStartUIPart
 from .models import (
-    LangChainAIMessageChunk,
-    LangChainMessageContentComplex,
-    LangChainStreamEvent,
     LangChainStreamInput,
     UIMessageChunk,
     UIMessageChunkStart,
@@ -33,25 +31,107 @@ from .models import (
     UIMessageChunkToolInputDelta,
     UIMessageChunkToolInputAvailable,
     UIMessageChunkToolOutputAvailable,
+    UIMessageChunkToolOutputError,
+    UIMessageChunkError,
+    UIMessageChunkFile,
+    UIMessageChunkData,
+    UIMessageChunkReasoning,
+    UIMessageChunkReasoningStart,
+    UIMessageChunkReasoningDelta,
+    UIMessageChunkReasoningEnd,
+    UIMessageChunkSourceUrl,
+    UIMessageChunkSourceDocument,
+    UIMessageChunkAbort,
+    UIMessageChunkMessageMetadata,
+    LangChainStreamEvent,
+    LangChainAIMessageChunk,
+)
+from .callbacks import (
+    BaseAICallbackHandler,
+    StreamCallbacks,
+    CallbacksTransformer,
+    Message,
+    UIPart,
+    TextUIPart,
+    ToolInvocationUIPart,
+    ToolInvocation,
 )
 
 
-class EnhancedStreamProcessor:
-    """Enhanced stream processor that handles complete AI SDK protocol."""
+class MessageBuilder:
+    """Builds Message objects from UIMessageChunk events.
     
+    This class accumulates UIMessageChunk events and constructs
+    a complete Message object with proper parts and content.
+    """
+
     def __init__(self, message_id: Optional[str] = None):
         self.message_id = message_id or str(uuid.uuid4())
-        self.text_id = str(uuid.uuid4())
-        self.step_count = 0
-        self.current_step_active = False
-        self.tool_calls: Dict[str, Dict[str, Any]] = {}
-        self.aggregated_text = ""
-        self.message_parts: List[UIPart] = []
-        self.has_started = False
-        self.has_text_started = False
-        self.tool_completed_in_current_step = False
-        self.need_new_step_for_text = False
-        self.llm_generation_complete = False
+        self.parts: List[UIPart] = []
+        self.content = ""
+        self.created_at = datetime.utcnow()
+        self._lock = asyncio.Lock()
+
+    async def add_chunk(self, chunk: UIMessageChunk) -> None:
+        """Add a UIMessageChunk and update the message state."""
+        async with self._lock:
+            # Update content based on chunk type
+            if chunk.get("type") == "text-delta":
+                self.content += chunk.get("delta", "")
+                # Add text part
+                self.parts.append(TextUIPart(
+                    type="text",
+                    text=chunk.get("delta", "")
+                ))
+            elif chunk.get("type") == "tool-input-available":
+                # Add tool invocation part
+                tool_invocation = ToolInvocation(
+                    state="call",
+                    toolCallId=chunk.get("toolCallId", ""),
+                    toolName=chunk.get("toolName", ""),
+                    args=chunk.get("input", {})
+                )
+                self.parts.append(ToolInvocationUIPart(
+                    type="tool-invocation",
+                    toolInvocation=tool_invocation
+                ))
+            elif chunk.get("type") == "tool-output-available":
+                # Update existing tool invocation with result
+                tool_call_id = chunk.get("toolCallId", "")
+                for part in self.parts:
+                    if (hasattr(part, 'toolInvocation') and 
+                        part.toolInvocation.toolCallId == tool_call_id):
+                        part.toolInvocation.state = "result"
+                        part.toolInvocation.result = chunk.get("output")
+                        break
+
+    def build_message(self) -> Message:
+        """Build the final Message object."""
+        return Message(
+            id=self.message_id,
+            createdAt=self.created_at,
+            content=self.content,
+            role="assistant",
+            parts=self.parts.copy()
+        )
+
+
+class StreamProcessor:
+    """Core stream processing logic for converting LangChain events to AI SDK format."""
+
+    def __init__(
+        self,
+        message_id: str,
+        auto_events: bool = True,
+        callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None
+    ):
+        self.message_id = message_id
+        self.auto_events = auto_events
+        self.callbacks = callbacks
+        self.message_builder = MessageBuilder(message_id)
+        self._lock = asyncio.Lock()
+        self._current_text_id: Optional[str] = None
+        self._tool_calls: Dict[str, Dict[str, Any]] = {}
         
     async def process_stream(
         self,
@@ -59,6 +139,18 @@ class EnhancedStreamProcessor:
         callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
     ) -> AsyncGenerator[UIMessageChunk, None]:
         """Process LangChain stream and generate AI SDK compatible events."""
+        
+        # Initialize state variables
+        self.current_step_active = False
+        self.llm_generation_complete = False
+        self.has_text_started = False
+        self.tool_completed_in_current_step = False
+        self.need_new_step_for_text = False
+        self.step_count = 0
+        self.text_id = f"text-{uuid.uuid4()}"
+        self.tool_calls = {}
+        self.message_parts = []
+        self.aggregated_text = ""
         
         try:
             # Emit start event
@@ -114,6 +206,100 @@ class EnhancedStreamProcessor:
                 if text:
                     async for ui_chunk in self._handle_text_content(text):
                         yield ui_chunk
+    
+    def _create_text_start_chunk(self, text_id: str) -> UIMessageChunkTextStart:
+        """Create text start chunk."""
+        return {
+            "type": "text-start",
+            "id": text_id
+        }
+    
+    def _create_text_delta_chunk(self, text_id: str, delta: str) -> UIMessageChunkTextDelta:
+        """Create text delta chunk."""
+        return {
+            "type": "text-delta",
+            "id": text_id,
+            "delta": delta
+        }
+    
+    def _create_text_end_chunk(self, text_id: str) -> UIMessageChunkTextEnd:
+        """Create text end chunk."""
+        return {
+            "type": "text-end",
+            "id": text_id
+        }
+    
+    def _create_tool_input_start_chunk(self, tool_call_id: str, tool_name: str) -> UIMessageChunkToolInputStart:
+        """Create tool input start chunk."""
+        return {
+            "type": "tool-input-start",
+            "toolCallId": tool_call_id,
+            "toolName": tool_name
+        }
+    
+    def _create_tool_output_available_chunk(self, tool_call_id: str, output: Any) -> UIMessageChunkToolOutputAvailable:
+        """Create tool output available chunk."""
+        return {
+            "type": "tool-output-available",
+            "toolCallId": tool_call_id,
+            "output": output
+        }
+    
+    def _create_start_step_chunk(self) -> UIMessageChunkStartStep:
+        """Create start step chunk."""
+        return {
+            "type": "start-step"
+        }
+    
+    def _create_finish_step_chunk(self) -> UIMessageChunkFinishStep:
+        """Create finish step chunk."""
+        return {
+            "type": "finish-step"
+        }
+    
+    def _create_start_chunk(self) -> UIMessageChunkStart:
+        """Create start chunk."""
+        chunk = {
+            "type": "start",
+            "messageId": self.message_id
+        }
+        return chunk
+    
+    async def _create_finish_chunk(self) -> UIMessageChunkFinish:
+        """Create finish chunk and trigger callbacks."""
+        chunk = {
+            "type": "finish"
+        }
+        
+        # Trigger callbacks
+        if self.callbacks:
+            message = self.message_builder.build_message()
+            if hasattr(self.callbacks, 'on_final') and self.callbacks.on_final:
+                await self._call_callback(self.callbacks.on_final, message.content, message)
+            elif hasattr(self.callbacks, 'on_finish'):
+                await self._call_callback(self.callbacks.on_finish, message, {})
+        
+        return chunk
+    
+    def _create_error_chunk(self, error_text: str) -> UIMessageChunkError:
+        """Create error chunk."""
+        return {
+            "type": "error",
+            "errorText": error_text
+        }
+    
+    async def _call_callback(self, callback: Optional[Callable], *args) -> None:
+        """Safely call a callback function, handling both sync and async callbacks."""
+        if callback is None:
+            return
+        
+        try:
+            result = callback(*args)
+            if hasattr(result, '__await__'):
+                await result
+        except Exception:
+            # Silently ignore callback errors to prevent stream interruption
+            pass
     
     async def _handle_stream_event(self, event: LangChainStreamEvent) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle specific LangChain stream events."""
@@ -431,7 +617,8 @@ class EnhancedStreamProcessor:
     def _create_start_step_event(self) -> UIMessageChunkStartStep:
         """Create step start event."""
         self.step_count += 1
-        self.message_parts.append(StepStartUIPart())
+        # Note: StepStartUIPart is not defined in models, using comment instead
+        # self.message_parts.append(StepStartUIPart())
         
         # Reset text state for new step
         self.text_id = f"text-{uuid.uuid4()}"
@@ -543,59 +730,123 @@ class EnhancedStreamProcessor:
         await callback_handler.on_finish(message, options)
 
 
+class LangChainAdapter:
+    """LangChain to AI SDK adapter providing three core methods."""
+    
+    @staticmethod
+    async def to_data_stream_response(
+        stream: AsyncIterable[LangChainStreamInput],
+        callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
+        message_id: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+        status: int = 200,
+        options: Optional[Dict[str, Any]] = None
+    ) -> "DataStreamResponse":
+        """Convert LangChain stream to FastAPI StreamingResponse.
+        
+        Args:
+            stream: LangChain async stream from astream_events()
+            callbacks: Callback handlers for stream events
+            message_id: Optional message ID for tracking
+            headers: HTTP headers for the response
+            status: HTTP status code
+            options: Control options (auto_events, emit_start, emit_finish, etc.)
+        
+        Returns:
+            DataStreamResponse: StreamingResponse-compatible object
+        """
+        # Create data stream
+        data_stream = LangChainAdapter.to_data_stream(
+            stream, callbacks, message_id, options
+        )
+        
+        # Convert to response
+        return DataStreamResponse(
+            data_stream,
+            headers=headers or {"Content-Type": "text/plain; charset=utf-8"},
+            status=status
+        )
+    
+    @staticmethod
+    async def to_data_stream(
+        stream: AsyncIterable[LangChainStreamInput],
+        callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
+        message_id: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None
+    ) -> AsyncGenerator[UIMessageChunk, None]:
+        """Convert LangChain stream to UIMessageChunk generator.
+        
+        Args:
+            stream: LangChain async stream from astream_events()
+            callbacks: Callback handlers for stream events
+            message_id: Optional message ID for tracking
+            options: Control options (auto_events, emit_start, emit_finish, etc.)
+        
+        Returns:
+            AsyncGenerator[UIMessageChunk, None]: Stream of UI message chunks
+        """
+        # Parse options
+        opts = options or {}
+        auto_events = opts.get("auto_events", True)
+        message_id = message_id or str(uuid.uuid4())
+        
+        # Create processor
+        processor = StreamProcessor(
+            message_id=message_id,
+            auto_events=auto_events,
+            callbacks=callbacks
+        )
+        
+        # Process and yield chunks
+        async for chunk in processor.process_stream(stream):
+            yield chunk
+    
+    @staticmethod
+    async def merge_into_data_stream(
+        stream: AsyncIterable[LangChainStreamInput],
+        data_stream_writer: "DataStreamWriter",
+        callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
+        message_id: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Merge LangChain stream into existing data stream.
+        
+        Args:
+            stream: LangChain async stream from astream_events()
+            data_stream_writer: Existing stream writer to merge into
+            callbacks: Callback handlers for stream events
+            message_id: Optional message ID for tracking
+            options: Control options (auto_events, emit_start, emit_finish, etc.)
+        
+        Returns:
+            None: Merges events into the provided data_stream_writer
+        """
+        # Convert to data stream
+        data_stream = LangChainAdapter.to_data_stream(
+            stream, callbacks, message_id, options
+        )
+        
+        # Write to existing stream
+        async for chunk in data_stream:
+            await data_stream_writer.write(chunk)
+
+
+# Legacy function for backward compatibility
 async def to_data_stream(
     stream: AsyncIterable[LangChainStreamInput],
     callbacks: Optional[Union[StreamCallbacks, BaseAICallbackHandler]] = None,
     message_id: Optional[str] = None,
 ) -> AsyncGenerator[UIMessageChunk, None]:
-    """Convert LangChain output streams to AI SDK Data Stream Protocol.
-    
-    This enhanced adapter supports the complete AI SDK UI Stream Protocol including:
-    - Tool invocation events (tool-input-start, tool-input-available, tool-output-available)
-    - Step control events (start-step, finish-step)
-    - Stream control events (start, finish)
-    - AI SDK compatible callbacks
-    
-    Args:
-        stream: Input stream from LangChain
-        callbacks: Optional callbacks (StreamCallbacks or BaseAICallbackHandler)
-        message_id: Optional message ID (auto-generated if not provided)
-        
-    Yields:
-        UI message chunks compatible with AI SDK Data Stream Protocol
-        
-    Example:
-        ```python
-        from langchain_aisdk_adapter import to_data_stream, BaseAICallbackHandler
-        
-        class MyCallbackHandler(BaseAICallbackHandler):
-            async def on_finish(self, message, options):
-                print(f"Final message: {message.content}")
-                print(f"Tool calls: {len([p for p in message.parts if p.type == 'tool-invocation'])}")
-        
-        # Convert LangChain stream to AI SDK format with callbacks
-        async for chunk in to_data_stream(langchain_stream, callbacks=MyCallbackHandler()):
-            print(chunk)
-        ```
-    """
-    processor = EnhancedStreamProcessor(message_id)
-    
-    # Handle legacy StreamCallbacks by using the original adapter
-    if isinstance(callbacks, StreamCallbacks):
-        from .adapter import to_ui_message_stream
-        async for chunk in to_ui_message_stream(stream, callbacks):
-            yield chunk
-    else:
-        # Use enhanced processing with AI SDK callbacks
-        async for chunk in processor.process_stream(stream, callbacks):
-            yield chunk
+    """Legacy function - use LangChainAdapter.to_data_stream instead."""
+    async for chunk in LangChainAdapter.to_data_stream(stream, callbacks, message_id):
+        yield chunk
 
 
-class DataStreamResponse:
-    """Response wrapper for AI SDK Data Stream Protocol.
+class DataStreamResponse(StreamingResponse):
+    """FastAPI StreamingResponse wrapper for AI SDK Data Stream Protocol.
     
-    This class provides a response-like interface for data streams,
-    similar to the Node.js AI SDK's DataStreamResponse.
+    This class wraps an AI SDK data stream as a FastAPI StreamingResponse,
+    automatically formatting UIMessageChunk objects as Server-Sent Events (SSE).
     """
     
     def __init__(
@@ -611,22 +862,41 @@ class DataStreamResponse:
             headers: Optional HTTP headers
             status: HTTP status code
         """
-        self.stream = stream
-        self.headers = headers or {}
-        self.status = status
+        # Convert UIMessageChunk stream to text stream
+        text_stream = self._convert_to_text_stream(stream)
         
-        # Set default headers for streaming
-        if "Content-Type" not in self.headers:
-            self.headers["Content-Type"] = "text/plain; charset=utf-8"
-        if "Cache-Control" not in self.headers:
-            self.headers["Cache-Control"] = "no-cache"
-        if "Connection" not in self.headers:
-            self.headers["Connection"] = "keep-alive"
+        # Set default headers for SSE
+        default_headers = {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+        if headers:
+            default_headers.update(headers)
+        
+        super().__init__(
+            content=text_stream,
+            headers=default_headers,
+            status_code=status
+        )
     
-    async def __aiter__(self):
-        """Async iterator for the stream."""
-        async for chunk in self.stream:
-            yield chunk
+    async def _convert_to_text_stream(
+        self, 
+        data_stream: AsyncGenerator[UIMessageChunk, None]
+    ) -> AsyncGenerator[str, None]:
+        """Convert UIMessageChunk to SSE text format."""
+        async for chunk in data_stream:
+            # Convert chunk to JSON string
+            if hasattr(chunk, 'dict'):
+                chunk_dict = chunk.dict()
+            elif isinstance(chunk, dict):
+                chunk_dict = chunk
+            else:
+                chunk_dict = {"type": "error", "errorText": "Invalid chunk format"}
+            
+            # Format as SSE
+            json_str = json.dumps(chunk_dict, ensure_ascii=False)
+            yield f"data: {json_str}\n\n"
 
 
 async def to_data_stream_response(
@@ -678,6 +948,7 @@ class DataStreamWriter:
         """Initialize DataStreamWriter."""
         self._chunks: List[UIMessageChunk] = []
         self._closed = False
+        self._queue: asyncio.Queue = asyncio.Queue()
     
     async def write(self, chunk: UIMessageChunk) -> None:
         """Write a chunk to the data stream.
@@ -688,10 +959,12 @@ class DataStreamWriter:
         if self._closed:
             raise RuntimeError("Cannot write to closed stream")
         self._chunks.append(chunk)
+        await self._queue.put(chunk)
     
     async def close(self) -> None:
         """Close the data stream writer."""
         self._closed = True
+        await self._queue.put(None)  # Sentinel value to signal end
     
     def get_chunks(self) -> List[UIMessageChunk]:
         """Get all written chunks.
@@ -700,6 +973,14 @@ class DataStreamWriter:
             List of UI message chunks
         """
         return self._chunks.copy()
+    
+    async def __aiter__(self):
+        """Async iterator for the stream."""
+        while True:
+            chunk = await self._queue.get()
+            if chunk is None:  # End of stream
+                break
+            yield chunk
     
     async def __aenter__(self):
         """Async context manager entry."""
