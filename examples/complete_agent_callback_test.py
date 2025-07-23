@@ -163,15 +163,93 @@ Thought:{agent_scratchpad}"""
             options={"auto_events": True}
         )
         
-        # Test emit_file method directly on the stream
-        await ai_sdk_stream.emit_file(url="report.pdf", mediaType="application/pdf")
+        # Test various emit methods directly on the stream with proper sequence
+        print("\nTesting manual emit methods with proper sequence:")
+        
+        # # 1. Start message
+        # await ai_sdk_stream.emit_start()
+        # print("✓ Emitted start")
+        
+        # # 2. Text sequence: start -> delta -> end
+        # text_id = "text-001"
+        # await ai_sdk_stream.emit_text_start(text_id=text_id)
+        # print("✓ Emitted text-start")
+        
+        # await ai_sdk_stream.emit_text_delta(delta="Hello ", text_id=text_id)
+        # await ai_sdk_stream.emit_text_delta(delta="world!", text_id=text_id)
+        # print("✓ Emitted text-delta chunks")
+        
+        # await ai_sdk_stream.emit_text_end(text="Hello world!", text_id=text_id)
+        # print("✓ Emitted text-end")
+        
+        # # 3. Tool sequence: start -> delta -> available -> output
+        # tool_call_id = "tool-001"
+        # await ai_sdk_stream.emit_tool_input_start(tool_call_id=tool_call_id, tool_name="get_weather")
+        # print("✓ Emitted tool-input-start")
+        
+        # await ai_sdk_stream.emit_tool_input_delta(tool_call_id=tool_call_id, delta='{"city": "Beijing"}')
+        # print("✓ Emitted tool-input-delta")
+        
+        # await ai_sdk_stream.emit_tool_input_available(
+        #     tool_call_id=tool_call_id, 
+        #     tool_name="get_weather", 
+        #     input_data={"city": "Beijing"}
+        # )
+        # print("✓ Emitted tool-input-available")
+        
+        # await ai_sdk_stream.emit_tool_output_available(
+        #     tool_call_id=tool_call_id, 
+        #     output="The weather in Beijing is sunny with 22°C temperature."
+        # )
+        # print("✓ Emitted tool-output-available")
+        
+        # # 4. Step sequence
+        # await ai_sdk_stream.emit_start_step(step_type="reasoning")
+        # print("✓ Emitted start-step")
+        
+        # await ai_sdk_stream.emit_finish_step(step_type="reasoning")
+        # print("✓ Emitted finish-step")
+        
+        # # 5. File attachments
+        # await ai_sdk_stream.emit_file(url="report.pdf", mediaType="application/pdf")
+        # print("✓ Emitted file: report.pdf")
+        
+        # await ai_sdk_stream.emit_file(url="data.json", mediaType="application/json")
+        # print("✓ Emitted file: data.json")
+        
+        # # 6. Source documents
+        # await ai_sdk_stream.emit_source_document(
+        #     source_id="doc-001",
+        #     media_type="text/plain",
+        #     title="Example Document",
+        #     filename="example.txt"
+        # )
+        # print("✓ Emitted source-document")
+        
+        # # 7. Custom data
+        # await ai_sdk_stream.emit_data(data={"key": "value", "number": 42}, data_type="data-custom")
+        # print("✓ Emitted data chunk")
+        
+        # # 8. Error handling
+        # await ai_sdk_stream.emit_error(error_text="This is a test error message.")
+        # print("✓ Emitted error")
+        
+        # # 9. Finish message
+        # await ai_sdk_stream.emit_finish()
+        # print("✓ Emitted finish")
+        
+        # print("All manual emit tests completed with proper sequence.\n")
         
         # Stream the response and show AI SDK protocols
         print("\nAI SDK Protocol Output:")
         print("-" * 40)
         async for chunk in ai_sdk_stream:
-            print(f"Protocol: {repr(chunk)}")
+            print(f"Protocol: {chunk}")
         print("-" * 40)
+        
+        # Explicitly close the stream to trigger on_finish callback
+        await ai_sdk_stream.close()
+        print("Stream closed explicitly")
         
     except Exception as e:
         print(f"Error during streaming: {str(e)}")

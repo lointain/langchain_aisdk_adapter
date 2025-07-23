@@ -54,9 +54,8 @@ class SourceUIPart(BaseModel):
 class FileUIPart(BaseModel):
     """File UI part for displaying file attachments"""
     type: Literal['file'] = 'file'
-    name: str
-    mimeType: str
-    data: str
+    url: str
+    mediaType: str
 
 class StepStartUIPart(BaseModel):
     """Step start UI part for marking workflow step beginning"""

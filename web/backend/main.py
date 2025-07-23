@@ -163,64 +163,39 @@ async def chat_manual_stream(request: ChatRequest):
         
         logger.info(f"Manual stream request: {user_input[:100]}...")
         
-        # 1. 定义手动控制的回调
-        class ManualCallbacks(BaseAICallbackHandler):
-            def __init__(self, stream_emitter):
-                self.stream_emitter = stream_emitter
-            
-            async def on_start(self, message_id: str, options: Dict[str, Any]) -> None:
-                print("Manual stream started")
-                # 可以在这里发送自定义协议
-                await self.stream_emitter.emit_data({
-                    "status": "started",
-                    "mode": "manual",
-                    "timestamp": str(asyncio.get_event_loop().time())
-                })
-            
-            async def on_finish(self, message: Message, options: Dict[str, Any]) -> None:
-                print(f"Manual stream finished: {message.content[:50]}...")
-                # 发送完成状态和额外信息
-                await self.stream_emitter.emit_data({
-                    "status": "completed",
-                    "final_message_length": len(message.content),
-                    "parts_count": len(message.parts),
-                    "timestamp": str(asyncio.get_event_loop().time())
-                })
-                
-                # 可选：发送文件或其他资源
-                # await self.stream_emitter.emit_file(
-                #     url="https://example.com/report.pdf",
-                #     mediaType="application/pdf"
-                # )
-        
-        # 2. 获取LangChain流
+        # 1. 获取LangChain流
         agent_stream = agent_executor.astream_events(
             {"input": user_input, "chat_history": chat_history},
             version="v2"
         )
         
-        # 3. 转换为AI SDK流（关闭自动事件，手动控制）
+        # 2. 转换为AI SDK流（关闭自动事件，手动控制）
         ai_sdk_stream = await LangChainAdapter.to_data_stream_response(
             agent_stream,
-            callbacks=None,  # 先不传callbacks，稍后设置
+            callbacks=None,
             message_id=request.message_id,
-            options={"auto_close": False}  # 手动控制关闭
+            options={"auto_events": False}  # 关闭自动事件
         )
         
-        # 4. 设置手动回调（传入stream emitter）
-        manual_callbacks = ManualCallbacks(ai_sdk_stream)
-        # 注意：这里需要重新创建stream，因为callbacks需要在创建时传入
-        agent_stream = agent_executor.astream_events(
-            {"input": user_input, "chat_history": chat_history},
-            version="v2"
-        )
+        # 3. 手动发送自定义数据
+        await ai_sdk_stream.emit_data({
+            "status": "manual_mode_started",
+            "mode": "manual",
+            "timestamp": str(asyncio.get_event_loop().time()),
+            "user_input_length": len(user_input)
+        })
         
-        ai_sdk_stream = await LangChainAdapter.to_data_stream_response(
-            agent_stream,
-            callbacks=manual_callbacks,
-            message_id=request.message_id,
-            options={"auto_close": False}
-        )
+        # 4. 可选：发送文件或其他资源
+        # await ai_sdk_stream.emit_file(
+        #     url="https://example.com/manual_report.pdf",
+        #     mediaType="application/pdf"
+        # )
+        
+        # 5. 发送额外的自定义数据
+        await ai_sdk_stream.emit_data({
+            "processing_info": "Using manual stream mode with custom data",
+            "chat_history_length": len(chat_history)
+        })
         
         return ai_sdk_stream
         

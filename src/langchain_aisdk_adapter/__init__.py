@@ -8,6 +8,7 @@ from .adapter import (
     LangChainAdapter,
     DataStreamResponse,
     DataStreamWriter,
+    DataStreamWithEmitters,
     to_data_stream,  # Legacy compatibility
     to_data_stream_response,
     merge_into_data_stream
@@ -77,6 +78,7 @@ __all__ = [
     # Response and Writer classes
     "DataStreamResponse",
     "DataStreamWriter",
+    "DataStreamWithEmitters",
     
     # Manual stream control
     "ManualStreamController",

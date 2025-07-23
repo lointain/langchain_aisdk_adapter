@@ -69,36 +69,61 @@ class MessageBuilder:
         self.message_id = message_id or str(uuid.uuid4())
         self.parts: List[UIPart] = []
         self.content = ""
-        self.created_at = datetime.utcnow()
+        self.created_at = datetime.now()
         self._lock = asyncio.Lock()
+        self._new_parts: List[UIPart] = []
+        self._current_text_parts = {}  # Track current TextUIPart objects by ID
 
-    async def add_chunk(self, chunk: UIMessageChunk) -> None:
+    async def add_chunk(self, chunk: UIMessageChunk) -> List[UIPart]:
         """Add a UIMessageChunk and update the message state.
         
         This method processes all types of UIMessageChunk and converts them to appropriate UIPart objects.
         It ensures that parts are accumulated regardless of auto_events setting.
+        
+        Returns:
+            List of newly generated UIPart objects for this chunk.
         """
         async with self._lock:
+            self._new_parts.clear()  # Clear previous new parts
             chunk_type = chunk.get("type")
+            
+            # Skip chunks without type
+            if not chunk_type:
+                return self._new_parts.copy()
             
             # Handle step-related chunks
             if chunk_type == "start-step":
-                self.parts.append(StepStartUIPart(type="step-start"))
+                # Import StepStartUIPart here to avoid circular imports
+                from .callbacks import StepStartUIPart
+                # Only create step-start part if we don't already have one at the end
+                # This prevents duplicate step-start parts
+                if not self.parts or not (hasattr(self.parts[-1], 'type') and self.parts[-1].type == "step-start"):
+                    part = StepStartUIPart(type="step-start")
+                    self.parts.append(part)
+                    self._new_parts.append(part)
             
-            # Handle text-related chunks
+            # Handle text-related chunks - SIMPLIFIED IMPLEMENTATION
             elif chunk_type == "text-start":
-                # Text start doesn't create a part immediately, wait for content
-                pass
+                # text-start: 创建新的TextUIPart对象
+                text_id = chunk.get("id", "default")
+                text_part = TextUIPart(type="text", text="")
+                self._current_text_parts[text_id] = text_part
             elif chunk_type == "text-delta":
+                # text-delta: 累加text到对应的TextUIPart对象
+                text_id = chunk.get("id", "default")
                 delta = chunk.get("textDelta", chunk.get("delta", ""))
-                self.content += delta
-                # Don't create TextUIPart here, wait for text-end
-                pass
+                if text_id in self._current_text_parts:
+                    self._current_text_parts[text_id].text += delta
             elif chunk_type == "text-end":
-                # Create TextUIPart with the complete text
-                text = chunk.get("text", "")
-                if text:
-                    self.parts.append(TextUIPart(type="text", text=text))
+                # text-end: 将TextUIPart对象放入parts数组
+                text_id = chunk.get("id", "default")
+                if text_id in self._current_text_parts:
+                    text_part = self._current_text_parts[text_id]
+                    if text_part.text.strip():  # 只有非空文本才添加
+                        self.parts.append(text_part)
+                        self._new_parts.append(text_part)
+                    # 清理当前文本部分
+                    del self._current_text_parts[text_id]
             
             # Handle tool-related chunks
             elif chunk_type == "tool-input-start":
@@ -108,42 +133,93 @@ class MessageBuilder:
                 # Tool input delta doesn't create a part immediately
                 pass
             elif chunk_type == "tool-input-available":
-                # Create tool invocation part
+                # Store tool information but don't create part yet
+                # Only create part when tool has result (state="result")
+                tool_call_id = chunk.get("toolCallId", "")
                 tool_input = chunk.get("input", {})
                 args_dict = tool_input if isinstance(tool_input, dict) else {"input": tool_input}
                 
-                # Calculate step number based on existing tool invocations
-                step = sum(1 for part in self.parts if hasattr(part, 'toolInvocation'))
-                
-                tool_invocation = ToolInvocation(
-                    state="call",
-                    step=step,
-                    toolCallId=chunk.get("toolCallId", ""),
-                    toolName=chunk.get("toolName", ""),
-                    args=args_dict
-                )
-                self.parts.append(ToolInvocationUIPart(
-                    type="tool-invocation",
-                    toolInvocation=tool_invocation
-                ))
+                # Store tool info for later use
+                if not hasattr(self, '_pending_tools'):
+                    self._pending_tools = {}
+                self._pending_tools[tool_call_id] = {
+                    "toolName": chunk.get("toolName", ""),
+                    "args": args_dict
+                }
             elif chunk_type == "tool-output-available":
-                # Update existing tool invocation with result
+                # Create tool invocation part only when result is available
                 tool_call_id = chunk.get("toolCallId", "")
-                for part in self.parts:
-                    if (hasattr(part, 'toolInvocation') and 
-                        part.toolInvocation.toolCallId == tool_call_id):
-                        part.toolInvocation.state = "result"
-                        part.toolInvocation.result = chunk.get("output")
-                        break
+                if hasattr(self, '_pending_tools') and tool_call_id in self._pending_tools:
+                    # Check if we already have a tool invocation with this toolCallId
+                    existing_tool = None
+                    for part in self.parts:
+                        if (hasattr(part, 'toolInvocation') and 
+                            hasattr(part.toolInvocation, 'toolCallId') and 
+                            part.toolInvocation.toolCallId == tool_call_id):
+                            existing_tool = part
+                            break
+                    
+                    # Only create new tool invocation if it doesn't exist
+                    if existing_tool is None:
+                        tool_info = self._pending_tools[tool_call_id]
+                        
+                        # Calculate step number based on existing tool invocations
+                        step = sum(1 for part in self.parts if hasattr(part, 'toolInvocation'))
+                        
+                        tool_invocation = ToolInvocation(
+                            state="result",
+                            step=step,
+                            toolCallId=tool_call_id,
+                            toolName=tool_info["toolName"],
+                            args=tool_info["args"],
+                            result=chunk.get("output")
+                        )
+                        part = ToolInvocationUIPart(
+                            type="tool-invocation",
+                            toolInvocation=tool_invocation
+                        )
+                        self.parts.append(part)
+                        self._new_parts.append(part)
+                        
+                        # Clean up pending tool
+                        del self._pending_tools[tool_call_id]
             elif chunk_type == "tool-output-error":
-                # Update existing tool invocation with error
+                # Create tool invocation part with error state
                 tool_call_id = chunk.get("toolCallId", "")
-                for part in self.parts:
-                    if (hasattr(part, 'toolInvocation') and 
-                        part.toolInvocation.toolCallId == tool_call_id):
-                        part.toolInvocation.state = "error"
-                        part.toolInvocation.result = {"error": chunk.get("errorText", "Unknown error")}
-                        break
+                if hasattr(self, '_pending_tools') and tool_call_id in self._pending_tools:
+                    # Check if we already have a tool invocation with this toolCallId
+                    existing_tool = None
+                    for part in self.parts:
+                        if (hasattr(part, 'toolInvocation') and 
+                            hasattr(part.toolInvocation, 'toolCallId') and 
+                            part.toolInvocation.toolCallId == tool_call_id):
+                            existing_tool = part
+                            break
+                    
+                    # Only create new tool invocation if it doesn't exist
+                    if existing_tool is None:
+                        tool_info = self._pending_tools[tool_call_id]
+                        
+                        # Calculate step number based on existing tool invocations
+                        step = sum(1 for part in self.parts if hasattr(part, 'toolInvocation'))
+                        
+                        tool_invocation = ToolInvocation(
+                            state="error",
+                            step=step,
+                            toolCallId=tool_call_id,
+                            toolName=tool_info["toolName"],
+                            args=tool_info["args"],
+                            result={"error": chunk.get("errorText", "Unknown error")}
+                        )
+                        part = ToolInvocationUIPart(
+                            type="tool-invocation",
+                            toolInvocation=tool_invocation
+                        )
+                        self.parts.append(part)
+                        self._new_parts.append(part)
+                        
+                        # Clean up pending tool
+                        del self._pending_tools[tool_call_id]
             
             # Handle reasoning chunks (if supported in the future)
             elif chunk_type in ["reasoning", "reasoning-start", "reasoning-delta", "reasoning-end"]:
@@ -152,19 +228,85 @@ class MessageBuilder:
                     reasoning_text = chunk.get("text", "")
                     if reasoning_text:
                         self.content += reasoning_text
-                        self.parts.append(TextUIPart(type="text", text=reasoning_text))
+                        part = TextUIPart(type="text", text=reasoning_text)
+                        self.parts.append(part)
+                        self._new_parts.append(part)
+            
+            # Handle file chunks
+            elif chunk_type == "file":
+                # Import FileUIPart here to avoid circular imports
+                from .callbacks import FileUIPart
+                # Map from AI SDK file chunk to FileUIPart
+                file_part = FileUIPart(
+                    type="file",
+                    url=chunk.get("url", ""),
+                    mediaType=chunk.get("mediaType", "")
+                )
+                self.parts.append(file_part)
+                self._new_parts.append(file_part)
+            
+            # Handle data chunks (type can be any string starting with 'data-')
+            elif chunk_type.startswith("data") or chunk_type == "data":
+                # Data chunks don't have a specific UIPart type in the current implementation
+                # They are handled as metadata or ignored for now
+                pass
+            
+            # Handle source chunks
+            elif chunk_type == "source-url":
+                # Import SourceUIPart here to avoid circular imports
+                from .callbacks import SourceUIPart
+                # Map from AI SDK source chunk to SourceUIPart
+                source_data = {
+                    "url": chunk.get("url", ""),
+                    "description": chunk.get("description")
+                }
+                source_part = SourceUIPart(
+                    type="source",
+                    source=source_data
+                )
+                self.parts.append(source_part)
+                self._new_parts.append(source_part)
+            elif chunk_type == "source-document":
+                # Import SourceUIPart here to avoid circular imports
+                from .callbacks import SourceUIPart
+                # Map from AI SDK source document chunk to SourceUIPart
+                source_data = {
+                    "sourceId": chunk.get("sourceId", ""),
+                    "mediaType": chunk.get("mediaType", ""),
+                    "title": chunk.get("title", ""),
+                    "filename": chunk.get("filename")
+                }
+                source_part = SourceUIPart(
+                    type="source",
+                    source=source_data
+                )
+                self.parts.append(source_part)
+                self._new_parts.append(source_part)
             
             # Handle error chunks
             elif chunk_type == "error":
-                # Add error as text content for now
+                # Import ErrorUIPart here to avoid circular imports
+                from .callbacks import ErrorUIPart
+                error_part = ErrorUIPart(
+                    type="error",
+                    error=chunk.get("errorText", "Error occurred")
+                )
+                self.parts.append(error_part)
+                self._new_parts.append(error_part)
+                # Also add to content for backward compatibility
                 error_text = chunk.get("errorText", "Error occurred")
                 self.content += f"\n[Error: {error_text}]"
-                self.parts.append(TextUIPart(type="text", text=f"\n[Error: {error_text}]"))
+            
+            # Handle step chunks (already handled above)
+            # elif chunk_type == "start-step":
+            #     # Already handled above
             
             # Handle other chunk types (start, finish, etc.)
             elif chunk_type in ["start", "finish", "finish-step", "abort"]:
                 # These don't create parts but are important for protocol flow
                 pass
+            
+            return self._new_parts.copy()
 
     def build_message(self) -> Message:
         """Build the final Message object."""
@@ -175,6 +317,36 @@ class MessageBuilder:
             role="assistant",
             parts=self.parts.copy()
         )
+
+
+class ProtocolGenerator:
+    """Unified protocol generator for all chunk types."""
+    
+    @staticmethod
+    def create_text_start(text_id: str) -> UIMessageChunkTextStart:
+        """Create text-start protocol chunk."""
+        return {
+            "type": "text-start",
+            "id": text_id
+        }
+    
+    @staticmethod
+    def create_text_delta(text_id: str, delta: str) -> UIMessageChunkTextDelta:
+        """Create text-delta protocol chunk."""
+        return {
+            "type": "text-delta",
+            "id": text_id,
+            "delta": delta
+        }
+    
+    @staticmethod
+    def create_text_end(text_id: str, text: str = "") -> UIMessageChunkTextEnd:
+        """Create text-end protocol chunk."""
+        return {
+            "type": "text-end",
+            "id": text_id,
+            "text": text
+        }
 
 
 class StreamProcessor:
@@ -193,6 +365,7 @@ class StreamProcessor:
         self._lock = asyncio.Lock()
         self._current_text_id: Optional[str] = None
         self._tool_calls: Dict[str, Dict[str, Any]] = {}
+        self._accumulated_text = ""
         
     async def process_stream(
         self,
@@ -213,8 +386,6 @@ class StreamProcessor:
         self.step_count = 0
         self.text_id = f"text-{uuid.uuid4()}"
         self.tool_calls = {}
-        self.message_parts = []
-        self.aggregated_text = ""
         
         try:
             # Create and process start event
@@ -242,16 +413,16 @@ class StreamProcessor:
                 self.current_step_active = False
                 self.llm_generation_complete = False
                 
+            # Always handle AI SDK callbacks if provided, regardless of auto_events
+            if isinstance(active_callbacks, BaseAICallbackHandler):
+                await self._handle_ai_sdk_callbacks(active_callbacks)
+            
             # Create and process finish event
             finish_chunk = self._create_finish_event()
             await self.message_builder.add_chunk(finish_chunk)
             # Emit finish event only if auto_events is True
             if self.auto_events:
                 yield finish_chunk
-            
-            # Always handle AI SDK callbacks if provided, regardless of auto_events
-            if isinstance(active_callbacks, BaseAICallbackHandler):
-                await self._handle_ai_sdk_callbacks(active_callbacks)
                 
         except Exception as e:
             if isinstance(active_callbacks, BaseAICallbackHandler):
@@ -267,7 +438,7 @@ class StreamProcessor:
         async for value in stream:
             # Handle string stream (direct text output)
             if isinstance(value, str):
-                async for chunk in self._handle_text_content(value):
+                async for chunk in self._handle_incremental_text(value):
                     yield chunk
                 continue
             
@@ -278,35 +449,14 @@ class StreamProcessor:
                     yield chunk
                 continue
             
-            # Handle AI message chunk stream
+            # Handle AI message chunk stream (but skip text processing here to avoid duplication)
+            # Text content from AI message chunks will be handled by the event stream processing
             if isinstance(value, dict) and "content" in value:
-                chunk: LangChainAIMessageChunk = value
-                text = self._extract_text_from_chunk(chunk)
-                if text:
-                    async for ui_chunk in self._handle_text_content(text):
-                        yield ui_chunk
+                # Skip text processing here to avoid duplication with event stream
+                # The text content will be processed through on_chat_model_stream events
+                continue
     
-    def _create_text_start_chunk(self, text_id: str) -> UIMessageChunkTextStart:
-        """Create text start chunk."""
-        return {
-            "type": "text-start",
-            "id": text_id
-        }
-    
-    def _create_text_delta_chunk(self, text_id: str, delta: str) -> UIMessageChunkTextDelta:
-        """Create text delta chunk."""
-        return {
-            "type": "text-delta",
-            "id": text_id,
-            "delta": delta
-        }
-    
-    def _create_text_end_chunk(self, text_id: str) -> UIMessageChunkTextEnd:
-        """Create text end chunk."""
-        return {
-            "type": "text-end",
-            "id": text_id
-        }
+    # Text protocol methods removed - use ProtocolGenerator instead
     
     def _create_tool_input_start_chunk(self, tool_call_id: str, tool_name: str) -> UIMessageChunkToolInputStart:
         """Create tool input start chunk."""
@@ -385,7 +535,9 @@ class StreamProcessor:
             if chunk_data:
                 text = self._extract_text_from_chunk(chunk_data)
                 if text:
-                    async for ui_chunk in self._handle_text_content(text):
+                    # LangChain chunks are incremental, use them directly as delta
+                    self._accumulated_text += text
+                    async for ui_chunk in self._handle_incremental_text(text):
                         yield ui_chunk
         elif event_type == "on_chat_model_end":
             async for chunk in self._handle_chat_model_end(data):
@@ -410,14 +562,18 @@ class StreamProcessor:
     async def _handle_chat_model_start(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle chat model start event."""
         if not self.current_step_active:
-            yield self._create_start_step_event()
+            self.step_count += 1
+            self.text_id = f"text-{uuid.uuid4()}"
+            self.has_text_started = False
+            self._accumulated_text = ""
+            yield {"type": "start-step"}
             self.current_step_active = True
     
     async def _handle_chat_model_end(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle chat model end event."""
         # End text if it was started
         if self.has_text_started:
-            yield self._create_text_end_event()
+            yield ProtocolGenerator.create_text_end(self.text_id, self._accumulated_text)
             self.has_text_started = False
         
         # Mark that LLM generation is complete
@@ -477,25 +633,30 @@ class StreamProcessor:
         }
         
         # Emit tool input start
-        yield self._create_tool_input_start_event(tool_call_id, name)
+        yield {
+            "type": "tool-input-start",
+            "toolCallId": tool_call_id,
+            "toolName": name
+        }
         
         # Emit tool input delta (serialize the input as JSON)
         import json
         input_json = json.dumps(inputs if isinstance(inputs, dict) else {"input": inputs})
-        yield self._create_tool_input_delta_event(tool_call_id, input_json)
+        yield {
+            "type": "tool-input-delta",
+            "toolCallId": tool_call_id,
+            "inputTextDelta": input_json
+        }
         
         # Emit tool input available
-        yield self._create_tool_input_available_event(tool_call_id, name, inputs)
+        yield {
+            "type": "tool-input-available",
+            "toolCallId": tool_call_id,
+            "toolName": name,
+            "input": inputs
+        }
         
-        # Add tool invocation to message parts
-        tool_invocation = ToolInvocation(
-            state="call",
-            step=self.step_count - 1,  # Set step number
-            toolCallId=tool_call_id,
-            toolName=name,
-            args=inputs
-        )
-        self.message_parts.append(ToolInvocationUIPart(toolInvocation=tool_invocation))
+        # Tool invocation will be handled by MessageBuilder
     
     async def _handle_tool_end(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle tool end event."""
@@ -511,16 +672,13 @@ class StreamProcessor:
             self.tool_calls[tool_call_id]["state"] = "result"
             
             # Emit tool output available
-            yield self._create_tool_output_available_event(tool_call_id, outputs)
+            yield {
+                "type": "tool-output-available",
+                "toolCallId": tool_call_id,
+                "output": outputs
+            }
             
-            # Update tool invocation in message parts
-            for part in self.message_parts:
-                if (isinstance(part, ToolInvocationUIPart) and 
-                    part.toolInvocation.toolCallId == tool_call_id):
-                    part.toolInvocation.result = outputs
-                    part.toolInvocation.state = "result"
-                    part.toolInvocation.step = self.step_count - 1  # Set step number
-                    break
+            # Tool invocation update will be handled by MessageBuilder
             
             # Mark that we have completed a tool call in this step
             self.tool_completed_in_current_step = True
@@ -574,32 +732,37 @@ class StreamProcessor:
                         }
                         
                         # Emit tool input start
-                        yield self._create_tool_input_start_event(tool_call_id, tool_name)
+                        yield {
+                            "type": "tool-input-start",
+                            "toolCallId": tool_call_id,
+                            "toolName": tool_name
+                        }
                         
                         # Emit tool input delta (serialize the input as JSON)
                         import json
                         input_json = json.dumps(tool_input if isinstance(tool_input, dict) else {"input": tool_input})
-                        yield self._create_tool_input_delta_event(tool_call_id, input_json)
+                        yield {
+                            "type": "tool-input-delta",
+                            "toolCallId": tool_call_id,
+                            "inputTextDelta": input_json
+                        }
                         
                         # Emit tool input available
-                        yield self._create_tool_input_available_event(tool_call_id, tool_name, tool_input)
+                        yield {
+                            "type": "tool-input-available",
+                            "toolCallId": tool_call_id,
+                            "toolName": tool_name,
+                            "input": tool_input
+                        }
                         
                         # Emit tool output available
-                        yield self._create_tool_output_available_event(tool_call_id, result)
+                        yield {
+                            "type": "tool-output-available",
+                            "toolCallId": tool_call_id,
+                            "output": result
+                        }
                         
-                        # Add tool invocation to message parts
-                        # Ensure args is always a dictionary
-                        args_dict = tool_input if isinstance(tool_input, dict) else {"input": tool_input}
-                        
-                        tool_invocation = ToolInvocation(
-                            state="result",
-                            step=self.step_count - 1,  # Set step number
-                            toolCallId=tool_call_id,
-                            toolName=tool_name,
-                            args=args_dict,
-                            result=result
-                        )
-                        self.message_parts.append(ToolInvocationUIPart(toolInvocation=tool_invocation))
+                        # Tool invocation will be handled by MessageBuilder
                         
                         # Mark that we have completed a tool call in this step
                         self.tool_completed_in_current_step = True
@@ -607,49 +770,24 @@ class StreamProcessor:
         # After processing all intermediate steps (all tools in this LLM cycle),
         # finish the current step if we have tool calls and LLM generation is complete
         if self.tool_completed_in_current_step and self.current_step_active and self.llm_generation_complete:
-            yield self._create_finish_step_event()
+            yield {"type": "finish-step"}
             self.current_step_active = False
             self.tool_completed_in_current_step = False
             self.need_new_step_for_text = True
             self.llm_generation_complete = False
     
-    async def _handle_text_content(self, text: str) -> AsyncGenerator[UIMessageChunk, None]:
-        """Handle text content and emit appropriate events."""
+    async def _handle_incremental_text(self, text: str) -> AsyncGenerator[UIMessageChunk, None]:
+        """Handle incremental text content using unified protocol generator."""
         if not text:
             return
         
-        # If we need a new step for text generation after tool completion
-        if self.need_new_step_for_text and not self.current_step_active:
-            yield self._create_start_step_event()
-            self.current_step_active = True
-            self.need_new_step_for_text = False
-        
-        # Ensure we have an active step for text generation
-        if not self.current_step_active:
-            yield self._create_start_step_event()
-            self.current_step_active = True
-            
         # Start text if not already started
         if not self.has_text_started:
-            yield self._create_text_start_event()
+            yield ProtocolGenerator.create_text_start(self.text_id)
             self.has_text_started = True
-            
-            # Add text part to message only when we have actual text content
-            # Initialize with the first text content
-            self.message_parts.append(TextUIPart(text=text))
-            self.aggregated_text = text
-        else:
-            # Update existing text part - find the most recent TextUIPart
-            for i in range(len(self.message_parts) - 1, -1, -1):
-                part = self.message_parts[i]
-                if isinstance(part, TextUIPart):
-                    part.text = self.aggregated_text + text
-                    break
-            # Update aggregated text
-            self.aggregated_text += text
         
-        # Emit text delta
-        yield self._create_text_delta_event(text)
+        # Send text delta
+        yield ProtocolGenerator.create_text_delta(self.text_id, text)
     
     def _extract_text_from_chunk(self, chunk: LangChainAIMessageChunk) -> str:
         """Extract text content from LangChain AI message chunk."""
@@ -683,99 +821,14 @@ class StreamProcessor:
             "type": "finish"
         }
     
-    def _create_start_step_event(self) -> UIMessageChunkStartStep:
-        """Create step start event."""
-        self.step_count += 1
-        # Add StepStartUIPart to message parts
-        self.message_parts.append(StepStartUIPart())
-        
-        # Reset text state for new step
-        self.text_id = f"text-{uuid.uuid4()}"
-        self.has_text_started = False
-        
-        return {
-            "type": "start-step"
-        }
-    
-    def _create_finish_step_event(self) -> UIMessageChunkFinishStep:
-        """Create step finish event."""
-        return {
-            "type": "finish-step"
-        }
-    
-    def _create_text_start_event(self) -> UIMessageChunkTextStart:
-        """Create text start event."""
-        return {
-            "type": "text-start",
-            "id": self.text_id
-        }
-    
-    def _create_text_delta_event(self, delta: str) -> UIMessageChunkTextDelta:
-        """Create text delta event."""
-        return {
-            "type": "text-delta",
-            "id": self.text_id,
-            "delta": delta
-        }
-    
-    def _create_text_end_event(self) -> UIMessageChunkTextEnd:
-        """Create text end event."""
-        return {
-            "type": "text-end",
-            "id": self.text_id
-        }
-    
-    def _create_tool_input_start_event(self, tool_call_id: str, tool_name: str) -> UIMessageChunkToolInputStart:
-        """Create tool input start event."""
-        return {
-            "type": "tool-input-start",
-            "toolCallId": tool_call_id,
-            "toolName": tool_name
-        }
-    
-    def _create_tool_input_delta_event(
-        self, 
-        tool_call_id: str, 
-        input_text_delta: str
-    ) -> UIMessageChunkToolInputDelta:
-        """Create tool input delta event."""
-        return {
-            "type": "tool-input-delta",
-            "toolCallId": tool_call_id,
-            "inputTextDelta": input_text_delta
-        }
-    
-    def _create_tool_input_available_event(
-        self, 
-        tool_call_id: str, 
-        tool_name: str, 
-        inputs: Any
-    ) -> UIMessageChunkToolInputAvailable:
-        """Create tool input available event."""
-        return {
-            "type": "tool-input-available",
-            "toolCallId": tool_call_id,
-            "toolName": tool_name,
-            "input": inputs
-        }
-    
-    def _create_tool_output_available_event(
-        self, 
-        tool_call_id: str, 
-        outputs: Any
-    ) -> UIMessageChunkToolOutputAvailable:
-        """Create tool output available event."""
-        return {
-            "type": "tool-output-available",
-            "toolCallId": tool_call_id,
-            "output": outputs
-        }
-    
     async def _handle_ai_sdk_callbacks(self, callback_handler: BaseAICallbackHandler) -> None:
         """Handle AI SDK compatible callbacks."""
+        # Use MessageBuilder to get the final message with all parts (including manual ones)
+        message = self.message_builder.build_message()
+        
         # Filter out empty TextUIParts from message parts
         filtered_parts = []
-        for part in self.message_parts:
+        for part in message.parts:
             if isinstance(part, TextUIPart):
                 # Only include TextUIPart if it has non-empty text
                 if part.text and part.text.strip():
@@ -784,13 +837,8 @@ class StreamProcessor:
                 # Include all non-TextUIPart parts
                 filtered_parts.append(part)
         
-        # Create final message
-        message = Message(
-            id=self.message_id,
-            content=self.aggregated_text,
-            role="assistant",
-            parts=filtered_parts
-        )
+        # Update message with filtered parts
+        message.parts = filtered_parts
         
         # Create options with usage info (if available)
         options = {}
@@ -810,7 +858,9 @@ class DataStreamWithEmitters:
         self,
         stream_generator: AsyncGenerator[UIMessageChunk, None],
         message_id: str,
-        auto_close: bool = True
+        auto_close: bool = True,
+        message_builder: Optional[MessageBuilder] = None,
+        callbacks: Optional[BaseAICallbackHandler] = None
     ):
         self._stream_generator = stream_generator
         self._message_id = message_id
@@ -818,6 +868,8 @@ class DataStreamWithEmitters:
         self._closed = False
         self._stream_started = False
         self._auto_close = auto_close
+        self._message_builder = message_builder
+        self._callbacks = callbacks
     
     async def emit_file(
         self, 
@@ -829,7 +881,6 @@ class DataStreamWithEmitters:
         from .models import UIMessageChunkFile
         chunk = UIMessageChunkFile(
             type="file",
-            messageId=message_id or self._message_id,
             url=url,
             mediaType=mediaType
         )
@@ -838,13 +889,13 @@ class DataStreamWithEmitters:
     async def emit_data(
         self, 
         data: Dict[str, Any],
+        data_type: str = "data-custom",
         message_id: Optional[str] = None
     ) -> None:
         """Emit a data chunk."""
         from .models import UIMessageChunkData
         chunk = UIMessageChunkData(
-            type="data",
-            messageId=message_id or self._message_id,
+            type=data_type,
             data=data
         )
         await self._emit_manual_chunk(chunk)
@@ -852,16 +903,17 @@ class DataStreamWithEmitters:
     async def emit_source_url(
         self, 
         url: str,
-        description: Optional[str] = None,
+        title: Optional[str] = None,
         message_id: Optional[str] = None
     ) -> None:
         """Emit a source-url chunk."""
         from .models import UIMessageChunkSourceUrl
+        import uuid
         chunk = UIMessageChunkSourceUrl(
             type="source-url",
-            messageId=message_id or self._message_id,
+            sourceId=str(uuid.uuid4()),
             url=url,
-            description=description
+            title=title
         )
         await self._emit_manual_chunk(chunk)
     
@@ -877,7 +929,6 @@ class DataStreamWithEmitters:
         from .models import UIMessageChunkSourceDocument
         chunk = UIMessageChunkSourceDocument(
             type="source-document",
-            messageId=message_id or self._message_id,
             sourceId=source_id,
             mediaType=media_type,
             title=title,
@@ -894,7 +945,6 @@ class DataStreamWithEmitters:
         from .models import UIMessageChunkReasoning
         chunk = UIMessageChunkReasoning(
             type="reasoning",
-            messageId=message_id or self._message_id,
             text=text
         )
         await self._emit_manual_chunk(chunk)
@@ -908,8 +958,295 @@ class DataStreamWithEmitters:
         from .models import UIMessageChunkError
         chunk = UIMessageChunkError(
             type="error",
-            messageId=message_id or self._message_id,
             errorText=error_text
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    # === Text-related emit methods ===
+    async def emit_text_start(
+        self,
+        text_id: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a text-start chunk using unified protocol generator."""
+        import uuid
+        chunk = ProtocolGenerator.create_text_start(
+            text_id or str(uuid.uuid4())
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_text_delta(
+        self,
+        delta: str,
+        text_id: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a text-delta chunk using unified protocol generator."""
+        import uuid
+        chunk = ProtocolGenerator.create_text_delta(
+            text_id or str(uuid.uuid4()),
+            delta
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_text_end(
+        self,
+        text: str,
+        text_id: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a text-end chunk using unified protocol generator."""
+        import uuid
+        chunk = ProtocolGenerator.create_text_end(
+            text_id or str(uuid.uuid4())
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    # === Tool-related emit methods ===
+    async def emit_tool_input_start(
+        self,
+        tool_call_id: str,
+        tool_name: str,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a tool-input-start chunk."""
+        from .models import UIMessageChunkToolInputStart
+        chunk = UIMessageChunkToolInputStart(
+            type="tool-input-start",
+            toolCallId=tool_call_id,
+            toolName=tool_name
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_tool_input_delta(
+        self,
+        tool_call_id: str,
+        delta: str,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a tool-input-delta chunk."""
+        from .models import UIMessageChunkToolInputDelta
+        chunk = UIMessageChunkToolInputDelta(
+            type="tool-input-delta",
+            toolCallId=tool_call_id,
+            delta=delta
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_tool_input_available(
+        self,
+        tool_call_id: str,
+        tool_name: str,
+        input_data: Any,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a tool-input-available chunk."""
+        from .models import UIMessageChunkToolInputAvailable
+        chunk = UIMessageChunkToolInputAvailable(
+            type="tool-input-available",
+            toolCallId=tool_call_id,
+            toolName=tool_name,
+            input=input_data
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_tool_output_available(
+        self,
+        tool_call_id: str,
+        output: Any,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a tool-output-available chunk."""
+        from .models import UIMessageChunkToolOutputAvailable
+        chunk = UIMessageChunkToolOutputAvailable(
+            type="tool-output-available",
+            toolCallId=tool_call_id,
+            output=output
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_tool_output_error(
+        self,
+        tool_call_id: str,
+        error_text: str,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a tool-output-error chunk."""
+        from .models import UIMessageChunkToolOutputError
+        chunk = UIMessageChunkToolOutputError(
+            type="tool-output-error",
+            toolCallId=tool_call_id,
+            errorText=error_text
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    # === Reasoning-related emit methods ===
+    async def emit_reasoning_start(
+        self,
+        reasoning_id: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a reasoning-start chunk."""
+        from .models import UIMessageChunkReasoningStart
+        import uuid
+        chunk = UIMessageChunkReasoningStart(
+            type="reasoning-start",
+            id=reasoning_id or str(uuid.uuid4())
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_reasoning_delta(
+        self,
+        delta: str,
+        reasoning_id: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a reasoning-delta chunk."""
+        from .models import UIMessageChunkReasoningDelta
+        import uuid
+        chunk = UIMessageChunkReasoningDelta(
+            type="reasoning-delta",
+            id=reasoning_id or str(uuid.uuid4()),
+            delta=delta
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_reasoning_end(
+        self,
+        reasoning_id: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a reasoning-end chunk."""
+        from .models import UIMessageChunkReasoningEnd
+        import uuid
+        chunk = UIMessageChunkReasoningEnd(
+            type="reasoning-end",
+            id=reasoning_id or str(uuid.uuid4())
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_reasoning_part_finish(
+        self,
+        reasoning_id: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a reasoning-part-finish chunk."""
+        from .models import UIMessageChunkReasoningPartFinish
+        import uuid
+        chunk = UIMessageChunkReasoningPartFinish(
+            type="reasoning-part-finish",
+            id=reasoning_id or str(uuid.uuid4())
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    # === Step-related emit methods ===
+    async def emit_start_step(
+        self,
+        step_type: str,
+        step_id: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a start-step chunk."""
+        from .models import UIMessageChunkStartStep
+        import uuid
+        chunk = UIMessageChunkStartStep(
+            type="start-step",
+            stepType=step_type,
+            stepId=step_id or str(uuid.uuid4())
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_finish_step(
+        self,
+        step_type: str,
+        step_id: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a finish-step chunk."""
+        from .models import UIMessageChunkFinishStep
+        import uuid
+        chunk = UIMessageChunkFinishStep(
+            type="finish-step",
+            stepType=step_type,
+            stepId=step_id or str(uuid.uuid4())
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    # === Message lifecycle emit methods ===
+    async def emit_start(
+        self,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a start chunk."""
+        from .models import UIMessageChunkStart
+        chunk = UIMessageChunkStart(
+            type="start",
+            messageId=message_id or self._message_id
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_finish(
+        self,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a finish chunk."""
+        from .models import UIMessageChunkFinish
+        chunk = UIMessageChunkFinish(
+            type="finish",
+            messageId=message_id or self._message_id
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_message_start(
+        self,
+        role: str,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a message-start chunk."""
+        from .models import UIMessageChunkMessageStart
+        chunk = UIMessageChunkMessageStart(
+            type="message-start",
+            messageId=message_id or self._message_id,
+            role=role
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_message_end(
+        self,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a message-end chunk."""
+        from .models import UIMessageChunkMessageEnd
+        chunk = UIMessageChunkMessageEnd(
+            type="message-end",
+            messageId=message_id or self._message_id
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_abort(
+        self,
+        reason: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit an abort chunk."""
+        from .models import UIMessageChunkAbort
+        chunk = UIMessageChunkAbort(
+            type="abort",
+            reason=reason
+        )
+        await self._emit_manual_chunk(chunk)
+    
+    async def emit_message_metadata(
+        self,
+        metadata: Dict[str, Any],
+        message_id: Optional[str] = None
+    ) -> None:
+        """Emit a message-metadata chunk."""
+        from .models import UIMessageChunkMessageMetadata
+        chunk = UIMessageChunkMessageMetadata(
+            type="message-metadata",
+            messageId=message_id or self._message_id,
+            metadata=metadata
         )
         await self._emit_manual_chunk(chunk)
     
@@ -917,7 +1254,12 @@ class DataStreamWithEmitters:
         """Emit a manual chunk to the queue."""
         if self._closed:
             raise RuntimeError("Cannot emit to closed stream")
-        await self._manual_queue.put(chunk)
+        
+        # Mark chunk as manual for processing in __aiter__
+        chunk_with_meta = dict(chunk)
+        chunk_with_meta['_is_manual'] = True
+        
+        await self._manual_queue.put(chunk_with_meta)
     
     async def __aiter__(self):
         """Async iterator that merges automatic and manual chunks."""
@@ -973,7 +1315,32 @@ class DataStreamWithEmitters:
                         # Log error but continue
                         continue
                     elif source in ("auto", "manual"):
-                        yield chunk
+                        # Remove meta flag if present
+                        clean_chunk = dict(chunk)
+                        clean_chunk.pop('_is_manual', None)
+                        
+                        # For auto chunks (from StreamProcessor), don't reprocess through message_builder
+                        # as they have already been processed. Only process manual chunks.
+                        if source == "manual" and self._message_builder:
+                            # Get newly generated parts from message builder for manual chunks only
+                            new_parts = await self._message_builder.add_chunk(clean_chunk)
+                            
+                            # Create chunk with parts
+                            chunk_with_parts = dict(clean_chunk)
+                            if new_parts:
+                                # Convert UIPart objects to dictionaries for JSON serialization
+                                parts_dicts = []
+                                for part in new_parts:
+                                    if hasattr(part, '__dict__'):
+                                        parts_dicts.append(part.__dict__)
+                                    else:
+                                        parts_dicts.append(part)
+                                chunk_with_parts['parts'] = parts_dicts
+                            
+                            yield chunk_with_parts
+                        else:
+                            # For auto chunks, just yield them as-is since they're already processed
+                            yield clean_chunk
                         
                 except asyncio.TimeoutError:
                     # Check if both tasks are done
@@ -998,6 +1365,18 @@ class DataStreamWithEmitters:
     async def close(self):
         """Close the stream."""
         self._closed = True
+        
+        # Call on_finish callback if available
+        if self._callbacks and isinstance(self._callbacks, BaseAICallbackHandler):
+            try:
+                # Build final message from message builder
+                if self._message_builder:
+                    final_message = self._message_builder.build_message()
+                    await self._callbacks.on_finish(final_message, {})
+            except Exception as e:
+                # Don't re-raise to avoid breaking the stream
+                pass
+        
         await self._manual_queue.put(None)
 
 
@@ -1074,8 +1453,14 @@ class LangChainAdapter:
             async for chunk in processor.process_stream(stream):
                 yield chunk
         
-        # Return wrapped stream with emit methods
-        return DataStreamWithEmitters(stream_generator(), message_id, auto_close)
+        # Return wrapped stream with emit methods, passing the message builder and callbacks
+        return DataStreamWithEmitters(
+            stream_generator(), 
+            message_id, 
+            auto_close, 
+            processor.message_builder,
+            callbacks
+        )
     
     @staticmethod
     async def merge_into_data_stream(

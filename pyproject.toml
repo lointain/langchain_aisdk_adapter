@@ -45,6 +45,7 @@ dependencies = [
     "typing-extensions>=4.0.0",
     "python-dotenv>=1.0.0",
     "aiohttp>=3.12.14",
+    "langchain-community>=0.3.27",
 ]
 
 [project.optional-dependencies]

@@ -138,6 +138,16 @@
                 </div>
               </div>
               
+              <!-- Custom Data Display (Manual Mode) -->
+              <div v-if="data && data.length > 0 && streamMode === 'manual'" class="mb-4">
+                <div class="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <div class="text-xs font-semibold text-purple-700 mb-2">📊 Manual Mode Data</div>
+                  <div v-for="(item, index) in data" :key="index" class="text-xs text-purple-600 mb-1">
+                    <code class="bg-purple-100 px-1 rounded">{{ JSON.stringify(item) }}</code>
+                  </div>
+                </div>
+              </div>
+              
               <!-- Loading Indicator -->
               <div v-if="isLoading" class="flex justify-start">
                 <div class="max-w-xs lg:max-w-md px-4 py-2 bg-white border rounded-lg shadow-sm">
@@ -287,9 +297,11 @@ const {
   input,
   handleSubmit,
   isLoading,
-  setMessages
+  setMessages,
+  data
 } = useChat({
   api: apiEndpoint.value,
+  streamProtocol: 'data', // 使用 AI SDK Data Stream Protocol
   body: {
     message_id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     stream_mode: streamMode.value
@@ -312,68 +324,9 @@ const {
   onFinish: (message) => {
     console.log('Chat finished:', message)
     console.log('Current mode:', streamMode.value)
+    console.log('Custom data received:', data.value)
     // 滚动到底部
     scrollToBottom()
-  },
-  // AI SDK Data Stream Protocol compatible
-  streamMode: 'text',
-  onChunk: ({ chunk }) => {
-    // 处理AI SDK Data Stream Protocol的各种事件类型
-    if (chunk && typeof chunk === 'string') {
-      try {
-        // 尝试解析 SSE 数据
-        if (chunk.startsWith('data: ')) {
-          const data = JSON.parse(chunk.slice(6))
-          
-          // 处理不同类型的事件
-          switch (data.type) {
-            case 'error':
-              // 创建错误消息
-              const errorMessage = {
-                id: `error_${Date.now()}`,
-                role: 'assistant',
-                content: 'An error occurred during processing.',
-                error: true,
-                errorDetails: data.errorText || 'Unknown error'
-              }
-              
-              // 替换最后一条消息（如果是正在生成的消息）
-              const currentMessages = [...messages.value]
-              if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'assistant') {
-                currentMessages[currentMessages.length - 1] = errorMessage
-              } else {
-                currentMessages.push(errorMessage)
-              }
-              setMessages(currentMessages)
-              return // 阻止进一步处理
-              
-            case 'data':
-              // 处理自定义数据事件（手动模式下的额外信息）
-              console.log('Received custom data:', data.data)
-              break
-              
-            case 'file':
-              // 处理文件事件
-              console.log('Received file:', data.url, data.mediaType)
-              break
-              
-            case 'start':
-              console.log('Stream started with message ID:', data.messageId)
-              break
-              
-            case 'finish':
-              console.log('Stream finished')
-              break
-              
-            default:
-              // 其他事件类型，继续正常处理
-              break
-          }
-        }
-      } catch (e) {
-        // 忽略解析错误，继续正常处理
-      }
-    }
   }
 })
 
