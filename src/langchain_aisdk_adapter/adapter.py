@@ -54,6 +54,7 @@ from .callbacks import (
     TextUIPart,
     ToolInvocationUIPart,
     ToolInvocation,
+    StepStartUIPart,
 )
 
 
@@ -75,7 +76,12 @@ class MessageBuilder:
         """Add a UIMessageChunk and update the message state."""
         async with self._lock:
             # Update content based on chunk type
-            if chunk.get("type") == "text-delta":
+            if chunk.get("type") == "start-step":
+                # Add step start part
+                self.parts.append(StepStartUIPart(
+                    type="step-start"
+                ))
+            elif chunk.get("type") == "text-delta":
                 self.content += chunk.get("delta", "")
                 # Add text part
                 self.parts.append(TextUIPart(
@@ -84,11 +90,14 @@ class MessageBuilder:
                 ))
             elif chunk.get("type") == "tool-input-available":
                 # Add tool invocation part
+                tool_input = chunk.get("input", {})
+                # Ensure args is always a dictionary
+                args_dict = tool_input if isinstance(tool_input, dict) else {"input": tool_input}
                 tool_invocation = ToolInvocation(
                     state="call",
                     toolCallId=chunk.get("toolCallId", ""),
                     toolName=chunk.get("toolName", ""),
-                    args=chunk.get("input", {})
+                    args=args_dict
                 )
                 self.parts.append(ToolInvocationUIPart(
                     type="tool-invocation",
@@ -156,21 +165,28 @@ class StreamProcessor:
         
         try:
             # Emit start event
-            yield self._create_start_event()
+            start_chunk = self._create_start_event()
+            await self.message_builder.add_chunk(start_chunk)
+            yield start_chunk
             
             # Process stream events
             async for event in self._process_langchain_events(stream):
+                await self.message_builder.add_chunk(event)
                 yield event
             
             # Emit final finish-step if there's an active step and LLM generation is complete
             # This handles the case where LLM generates only text without tool calls
             if self.current_step_active and self.llm_generation_complete:
-                yield self._create_finish_step_event()
+                finish_step_chunk = self._create_finish_step_event()
+                await self.message_builder.add_chunk(finish_step_chunk)
+                yield finish_step_chunk
                 self.current_step_active = False
                 self.llm_generation_complete = False
                 
             # Emit finish event and handle callbacks
-            yield self._create_finish_event()
+            finish_chunk = self._create_finish_event()
+            await self.message_builder.add_chunk(finish_chunk)
+            yield finish_chunk
             
             # Handle AI SDK callbacks if provided
             if isinstance(active_callbacks, BaseAICallbackHandler):
@@ -609,8 +625,8 @@ class StreamProcessor:
     def _create_start_step_event(self) -> UIMessageChunkStartStep:
         """Create step start event."""
         self.step_count += 1
-        # Note: StepStartUIPart is not defined in models, using comment instead
-        # self.message_parts.append(StepStartUIPart())
+        # Add StepStartUIPart to message parts
+        self.message_parts.append(StepStartUIPart())
         
         # Reset text state for new step
         self.text_id = f"text-{uuid.uuid4()}"
