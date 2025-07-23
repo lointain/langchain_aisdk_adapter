@@ -3,8 +3,9 @@ import json
 import logging
 import sys
 import os
+import uuid
 from contextlib import asynccontextmanager
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, AsyncGenerator
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -19,11 +20,17 @@ if src_path not in sys.path:
 
 from models import ChatRequest, ChatResponse, ErrorResponse, StreamMode
 from agents import create_agent_executor, format_chat_history
-from langchain_aisdk_adapter import LangChainAdapter, BaseAICallbackHandler, Message
+from langchain_aisdk_adapter import LangChainAdapter, Message
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Helper function to create empty async generator
+async def async_generator_from_list(items: List) -> AsyncGenerator:
+    """Create an async generator from a list of items."""
+    for item in items:
+        yield item
 
 # 全局变量存储 agent executor
 agent_executor = None
@@ -101,44 +108,26 @@ async def chat_auto_stream(request: ChatRequest):
     try:
         # 格式化聊天历史
         chat_history = format_chat_history([msg.dict() for msg in request.messages[:-1]]) if len(request.messages) > 1 else []
-        user_input = request.messages[-1].content
+        user_input = request.messages[-1].get_content()
         
         logger.info(f"Auto stream request: {user_input[:100]}...")
         
-        # 1. 定义回调
-        def on_start():
-            print("Stream started")
-         
-        def on_final(final_text: str, message: Message):
-            print(f"Final text: {final_text}")
-            # 存储完整的message对象到数据库
-            # save_to_database(message)
-         
-        class CustomCallbacks(BaseAICallbackHandler):
-             async def on_start(self, message_id: str, options: Dict[str, Any]) -> None:
-                 on_start()
-             
-             async def on_finish(self, message: Message, options: Dict[str, Any]) -> None:
-                 on_final(message.content, message)
-         
-        callbacks = CustomCallbacks()
-         
-        # 2. 获取LangChain流
+        # 1. 获取LangChain流
         agent_stream = agent_executor.astream_events(
             {"input": user_input, "chat_history": chat_history},
             version="v2"
         )
          
-        # 3. 转换为AI SDK流（自动处理text-delta, tool相关事件等）
+        # 2. 转换为AI SDK流（自动处理text-delta, tool相关事件等）
         ai_sdk_stream = await LangChainAdapter.to_data_stream_response(
             agent_stream,
-            callbacks=callbacks,
+            callbacks=None,
             message_id=request.message_id
         )
          
-        # 4. 可选：在流中手动添加额外内容
-        # 比如文件、自定义数据等无法自动检测的内容
-        # await ai_sdk_stream.emit_file(url="report.pdf", mediaType="application/pdf")
+        # 3. 可选：在流中手动添加额外内容
+         # 比如文件、自定义数据等无法自动检测的内容
+         # await ai_sdk_stream.emit_file(url="report.pdf", mediaType="application/pdf")
          
         return ai_sdk_stream
         
@@ -151,7 +140,7 @@ async def chat_manual_stream(request: ChatRequest):
     """手动模式 - 使用 LangChain callback 调用 emit 方法发送协议
     
     在这种模式下，通过LangChain callback精确控制流的每个阶段，
-    可以在适当的时机调用emit方法发送自定义协议。
+    在文本输出和工具调用的位置手动调用emit方法发送自定义协议。
     """
     if not agent_executor:
         raise HTTPException(status_code=500, detail="Agent not initialized")
@@ -159,43 +148,114 @@ async def chat_manual_stream(request: ChatRequest):
     try:
         # 格式化聊天历史
         chat_history = format_chat_history([msg.dict() for msg in request.messages[:-1]]) if len(request.messages) > 1 else []
-        user_input = request.messages[-1].content
+        user_input = request.messages[-1].get_content()
         
         logger.info(f"Manual stream request: {user_input[:100]}...")
         
-        # 1. 获取LangChain流
-        agent_stream = agent_executor.astream_events(
-            {"input": user_input, "chat_history": chat_history},
-            version="v2"
-        )
-        
-        # 2. 转换为AI SDK流（关闭自动事件，手动控制）
+        # 1. 首先创建一个空的流（关闭自动事件）
+        empty_stream = async_generator_from_list([])
         ai_sdk_stream = await LangChainAdapter.to_data_stream_response(
-            agent_stream,
+            empty_stream,
             callbacks=None,
             message_id=request.message_id,
             options={"auto_events": False}  # 关闭自动事件
         )
         
-        # 3. 手动发送自定义数据
-        await ai_sdk_stream.emit_data({
-            "status": "manual_mode_started",
-            "mode": "manual",
-            "timestamp": str(asyncio.get_event_loop().time()),
-            "user_input_length": len(user_input)
-        })
+        # 2. 后台任务：直接在事件循环中处理并调用 adapter 的 emit 方法
+        async def process_langchain_stream():
+            try:
+                # Send initial events
+                await ai_sdk_stream.emit_start(request.message_id)
+                await ai_sdk_stream.emit_start_step("agent", str(uuid.uuid4()))
+                
+                # Track state for text and tool events
+                current_text_id = None
+                current_tool_call_id = None
+                accumulated_text = ""
+                step_active = True
+                
+                # Process LangChain events and call adapter emit methods directly
+                async for event in agent_executor.astream_events(
+                    {"input": user_input, "chat_history": chat_history},
+                    version="v2"
+                ):
+                    event_type = event.get("event")
+                    event_data = event.get("data", {})
+                    event_name = event.get("name", "")
+                    
+                    # Handle LLM events
+                    if event_type == "on_llm_start":
+                        current_text_id = f"text-{uuid.uuid4()}"
+                        await ai_sdk_stream.emit_text_start(current_text_id)
+                        
+                    elif event_type == "on_llm_stream":
+                        chunk = event_data.get("chunk")
+                        if chunk and hasattr(chunk, 'content') and current_text_id:
+                            content = chunk.content
+                            if content:
+                                await ai_sdk_stream.emit_text_delta(content, current_text_id)
+                                accumulated_text += content
+                                
+                    elif event_type == "on_llm_end":
+                        if current_text_id:
+                            await ai_sdk_stream.emit_text_end(accumulated_text, current_text_id)
+                            current_text_id = None
+                            accumulated_text = ""
+                            
+                    # Handle tool events
+                    elif event_type == "on_tool_start":
+                        tool_name = event_name or "unknown"
+                        current_tool_call_id = f"tool_{int(asyncio.get_event_loop().time() * 1000000)}"
+                        
+                        await ai_sdk_stream.emit_tool_input_start(
+                            current_tool_call_id,
+                            tool_name
+                        )
+                        
+                        tool_input = event_data.get("input")
+                        if tool_input:
+                            # Emit input delta first
+                            input_str = json.dumps(tool_input) if not isinstance(tool_input, str) else tool_input
+                            await ai_sdk_stream.emit_tool_input_delta(current_tool_call_id, input_str)
+                            
+                            # Then emit input available
+                            await ai_sdk_stream.emit_tool_input_available(
+                                current_tool_call_id,
+                                tool_name,
+                                tool_input
+                            )
+                            
+                    elif event_type == "on_tool_end":
+                        if current_tool_call_id:
+                            output = event_data.get("output")
+                            if output:
+                                await ai_sdk_stream.emit_tool_output_available(
+                                    current_tool_call_id,
+                                    output
+                                )
+                            current_tool_call_id = None
+                            
+                    elif event_type == "on_tool_error":
+                        if current_tool_call_id:
+                            error = event_data.get("error", "Unknown tool error")
+                            await ai_sdk_stream.emit_tool_output_error(
+                                current_tool_call_id,
+                                str(error)
+                            )
+                            current_tool_call_id = None
+                
+                # Finish the stream
+                if step_active:
+                    await ai_sdk_stream.emit_finish_step("agent", str(uuid.uuid4()))
+                await ai_sdk_stream.emit_finish(request.message_id)
+                
+            except Exception as e:
+                logger.error(f"Error in manual stream processing: {e}")
+                await ai_sdk_stream.emit_error(str(e))
+                await ai_sdk_stream.emit_abort()
         
-        # 4. 可选：发送文件或其他资源
-        # await ai_sdk_stream.emit_file(
-        #     url="https://example.com/manual_report.pdf",
-        #     mediaType="application/pdf"
-        # )
-        
-        # 5. 发送额外的自定义数据
-        await ai_sdk_stream.emit_data({
-            "processing_info": "Using manual stream mode with custom data",
-            "chat_history_length": len(chat_history)
-        })
+        # 3. 启动后台任务
+        asyncio.create_task(process_langchain_stream())
         
         return ai_sdk_stream
         
@@ -231,7 +291,7 @@ async def chat_sync(request: ChatRequest) -> ChatResponse:
     try:
         # 格式化聊天历史
         chat_history = format_chat_history([msg.dict() for msg in request.messages[:-1]]) if len(request.messages) > 1 else []
-        user_input = request.messages[-1].content
+        user_input = request.messages[-1].get_content()
         
         logger.info(f"Sync request: {user_input[:100]}...")
         

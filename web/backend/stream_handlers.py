@@ -17,7 +17,6 @@ if src_path not in sys.path:
 # 使用真正的 langchain_aisdk_adapter
 from langchain_aisdk_adapter import (
     to_data_stream_response, 
-    BaseAICallbackHandler, 
     StreamCallbacks,
     ManualStreamController,
     manual_stream_context,
@@ -31,7 +30,7 @@ from langchain_aisdk_adapter import (
 # 注意：to_data_stream_response 现在从 langchain_aisdk_adapter 导入
 # 不再需要自定义实现
 
-class AutoStreamCallbackHandler(BaseAICallbackHandler):
+class AutoStreamCallbackHandler(BaseCallbackHandler):
     """Callback handler for auto stream mode"""
     
     def __init__(self):

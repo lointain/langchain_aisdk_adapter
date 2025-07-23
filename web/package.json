@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "zod": "^4.0.5"
+    "@ai-sdk/react": "^2.0.0-beta.25",
+    "ai": "^5.0.0-beta.25"
   }
 }

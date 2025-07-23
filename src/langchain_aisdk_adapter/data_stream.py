@@ -540,7 +540,7 @@ class DataStreamResponse(StreamingResponse):
     """FastAPI StreamingResponse wrapper for AI SDK Data Stream Protocol.
     
     This class wraps an AI SDK data stream as a FastAPI StreamingResponse,
-    automatically formatting UIMessageChunk objects as Server-Sent Events (SSE).
+    automatically formatting UIMessageChunk objects for AI SDK v3/v4 compatibility.
     """
     
     def __init__(
@@ -559,9 +559,9 @@ class DataStreamResponse(StreamingResponse):
         # Convert UIMessageChunk stream to text stream
         text_stream = self._convert_to_text_stream(stream)
         
-        # Set default headers for SSE
+        # Set default headers for AI SDK v5 SSE format
         default_headers = {
-            "Content-Type": "text/plain; charset=utf-8",
+            "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
         }
@@ -578,7 +578,7 @@ class DataStreamResponse(StreamingResponse):
         self, 
         data_stream: AsyncGenerator[UIMessageChunk, None]
     ) -> AsyncGenerator[str, None]:
-        """Convert UIMessageChunk to SSE text format."""
+        """Convert UIMessageChunk to AI SDK v5 SSE format."""
         async for chunk in data_stream:
             # Convert chunk to JSON string
             if hasattr(chunk, 'dict'):
@@ -588,9 +588,14 @@ class DataStreamResponse(StreamingResponse):
             else:
                 chunk_dict = {"type": "error", "errorText": "Invalid chunk format"}
             
-            # Format as SSE
+            # Format as AI SDK v5 SSE format: data: CONTENT_JSON\n\n
             json_str = json.dumps(chunk_dict, ensure_ascii=False)
             yield f"data: {json_str}\n\n"
+         
+        # Send SSE termination marker
+        yield "data: [DONE]\n\n"
+    
+
 
 
 class DataStreamWriter:
