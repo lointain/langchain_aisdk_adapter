@@ -388,28 +388,25 @@ class StreamProcessor:
         self.tool_calls = {}
         
         try:
-            # Create and process start event
-            start_chunk = self._create_start_event()
-            await self.message_builder.add_chunk(start_chunk)
-            # Emit start event only if auto_events is True
+            # Create and process start event only if auto_events is True
             if self.auto_events:
+                start_chunk = self._create_start_event()
+                await self.message_builder.add_chunk(start_chunk)
                 yield start_chunk
             
             # Process stream events
             async for event in self._process_langchain_events(stream):
-                # Always accumulate parts regardless of auto_events setting
-                await self.message_builder.add_chunk(event)
-                # Only yield events if auto_events is True
+                # Only accumulate parts and yield events if auto_events is True
                 if self.auto_events:
+                    await self.message_builder.add_chunk(event)
                     yield event
             
             # Create and process final finish-step if there's an active step and LLM generation is complete
             # This handles the case where LLM generates only text without tool calls
-            if self.current_step_active and self.llm_generation_complete:
+            if self.current_step_active and self.llm_generation_complete and self.auto_events:
                 finish_step_chunk = self._create_finish_step_event()
                 await self.message_builder.add_chunk(finish_step_chunk)
-                if self.auto_events:
-                    yield finish_step_chunk
+                yield finish_step_chunk
                 self.current_step_active = False
                 self.llm_generation_complete = False
                 
@@ -417,11 +414,10 @@ class StreamProcessor:
             if isinstance(active_callbacks, BaseAICallbackHandler):
                 await self._handle_ai_sdk_callbacks(active_callbacks)
             
-            # Create and process finish event
-            finish_chunk = self._create_finish_event()
-            await self.message_builder.add_chunk(finish_chunk)
-            # Emit finish event only if auto_events is True
+            # Create and process finish event only if auto_events is True
             if self.auto_events:
+                finish_chunk = self._create_finish_event()
+                await self.message_builder.add_chunk(finish_chunk)
                 yield finish_chunk
                 
         except Exception as e:
