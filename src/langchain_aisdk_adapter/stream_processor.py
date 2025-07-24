@@ -42,6 +42,7 @@ class StreamProcessor:
         self._tool_calls: Dict[str, Dict[str, Any]] = {}
         self._accumulated_text = ""
         self.current_step_id: Optional[str] = None
+        self.current_usage: Dict[str, int] = {"promptTokens": 0, "completionTokens": 0}
         
     async def process_stream(
         self,
@@ -108,26 +109,30 @@ class StreamProcessor:
     ) -> AsyncGenerator[UIMessageChunk, None]:
         """Process individual LangChain events and convert to AI SDK format."""
         
-        async for value in stream:
-            # Handle string stream (direct text output)
-            if isinstance(value, str):
-                async for chunk in self._handle_incremental_text(value):
-                    yield chunk
-                continue
-            
-            # Handle LangChain stream events v2
-            if isinstance(value, dict) and "event" in value:
-                event: LangChainStreamEvent = value
-                async for chunk in self._handle_stream_event(event):
-                    yield chunk
-                continue
-            
-            # Handle AI message chunk stream (but skip text processing here to avoid duplication)
-            # Text content from AI message chunks will be handled by the event stream processing
-            if isinstance(value, dict) and "content" in value:
-                # Skip text processing here to avoid duplication with event stream
-                # The text content will be processed through on_chat_model_stream events
-                continue
+        try:
+            async for value in stream:
+                # Handle string stream (direct text output)
+                if isinstance(value, str):
+                    async for chunk in self._handle_incremental_text(value):
+                        yield chunk
+                    continue
+                
+                # Handle LangChain stream events v2
+                if isinstance(value, dict) and "event" in value:
+                    event: LangChainStreamEvent = value
+                    async for chunk in self._handle_stream_event(event):
+                        yield chunk
+                    continue
+                
+                # Handle AI message chunk stream (but skip text processing here to avoid duplication)
+                # Text content from AI message chunks will be handled by the event stream processing
+                if isinstance(value, dict) and "content" in value:
+                    # Skip text processing here to avoid duplication with event stream
+                    # The text content will be processed through on_chat_model_stream events
+                    continue
+        except Exception as e:
+            # Re-raise the exception to be handled by the caller
+            raise e
     
     def _create_tool_input_start_chunk(self, tool_call_id: str, tool_name: str) -> UIMessageChunkToolInputStart:
         """Create tool input start chunk."""
@@ -235,12 +240,14 @@ class StreamProcessor:
                 yield chunk
         
         # Handle tool events (direct tool calls)
-        elif event_type == "on_tool_start":
-            async for chunk in self._handle_tool_start(data):
-                yield chunk
-        elif event_type == "on_tool_end":
-            async for chunk in self._handle_tool_end(data):
-                yield chunk
+        # NOTE: Disabled direct tool event processing to avoid duplication with intermediate_steps
+        # The intermediate_steps processing provides complete and accurate tool information
+        # elif event_type == "on_tool_start":
+        #     async for chunk in self._handle_tool_start(event):
+        #         yield chunk
+        # elif event_type == "on_tool_end":
+        #     async for chunk in self._handle_tool_end(event):
+        #         yield chunk
     
     async def _handle_chat_model_start(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle chat model start event."""
@@ -303,18 +310,17 @@ class StreamProcessor:
         self.llm_generation_complete = True
         # after all tool outputs are available
     
-    async def _handle_tool_start(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
+    async def _handle_tool_start(self, event: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle tool start event."""
-        # Skip direct tool events if data is incomplete
-        # LangChain's direct tool events often lack proper tool information
-        # We'll rely on intermediate_steps processing instead
-        if not data or not data.get("name") and not data.get("serialized", {}).get("name"):
-            return
+        # Extract data and event-level information
+        data = event.get("data", {})
         
-        run_id = data.get("run_id", str(uuid.uuid4()))
+        # Tool name can be at event level or in data
+        run_id = event.get("run_id") or data.get("run_id", str(uuid.uuid4()))
         
-        # Try different possible field names for tool name with more comprehensive extraction
+        # Try different possible field names for tool name
         name = (
+            event.get("name") or  # Event level name (most common for LangChain)
             data.get("name") or 
             data.get("tool_name") or 
             data.get("tool") or
@@ -336,11 +342,17 @@ class StreamProcessor:
                     name
                 )
         
-        # Skip if we still can't determine the tool name
+        # Extract inputs - they might be in different locations
+        inputs = (
+            data.get("inputs") or 
+            data.get("input") or 
+            data.get("arguments") or
+            {}
+        )
+        
+        # Skip if we can't determine the tool name
         if name == "unknown_tool":
             return
-        
-        inputs = data.get("inputs", {})
         
         tool_call_id = str(run_id)
         
@@ -377,10 +389,13 @@ class StreamProcessor:
         
         # Tool invocation will be handled by MessageBuilder
     
-    async def _handle_tool_end(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
+    async def _handle_tool_end(self, event: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle tool end event."""
-        run_id = data.get("run_id", "")
-        outputs = data.get("outputs", {})
+        # Extract data and event-level information
+        data = event.get("data", {})
+        
+        run_id = event.get("run_id") or data.get("run_id", "")
+        outputs = data.get("outputs") or data.get("output", {})
         
         tool_call_id = str(run_id)
         
@@ -437,9 +452,6 @@ class StreamProcessor:
                     # Create a unique tool call ID based on the action
                     tool_call_id = f"tool_{abs(hash(str(action)))}"
                     
-                    # Note: Direct tool events are now skipped when incomplete,
-                    # so intermediate_steps processing is the primary source of tool events
-                    
                     # Only process if we haven't seen this tool call before
                     if tool_call_id not in self.tool_calls:
                         # Store tool call info
@@ -449,6 +461,9 @@ class StreamProcessor:
                             "outputs": result,
                             "state": "result"
                         }
+                        
+                        # Emit complete tool input sequence for v5 compatibility
+                        # v4 protocol will filter out unwanted events in protocol_strategy.py
                         
                         # Emit tool input start
                         yield {
@@ -568,7 +583,7 @@ class StreamProcessor:
         message = self.message_builder.build_message()
         
         # Filter out empty TextUIParts from message parts
-        from .models import TextUIPart
+        from .callbacks import TextUIPart
         filtered_parts = []
         for part in message.parts:
             if isinstance(part, TextUIPart):
