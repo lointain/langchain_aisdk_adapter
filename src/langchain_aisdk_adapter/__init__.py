@@ -11,6 +11,7 @@ from .stream_processor import StreamProcessor
 from .data_stream import DataStreamWithEmitters, DataStreamResponse, DataStreamWriter
 from .langchain_adapter import (
     LangChainAdapter,
+    AdapterOptions,
     to_data_stream,  # Legacy compatibility
     to_data_stream_response,
     merge_into_data_stream
@@ -71,6 +72,7 @@ __version__ = "0.0.1a1"
 __all__ = [
     # Main adapter class (V1 Implementation)
     "LangChainAdapter",
+    "AdapterOptions",
     
     # Core processing classes
     "MessageBuilder",

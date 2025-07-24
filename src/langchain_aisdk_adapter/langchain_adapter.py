@@ -1,12 +1,29 @@
 """LangChain to AI SDK adapter providing core conversion methods."""
 
 import uuid
-from typing import AsyncIterable, AsyncGenerator, Optional, Dict, Any
+from typing import AsyncIterable, AsyncGenerator, Optional, Dict, Any, Literal, TypedDict
 
 from .models import LangChainStreamInput, UIMessageChunk
 from .stream_processor import StreamProcessor
 from .data_stream import DataStreamWithEmitters, DataStreamResponse, DataStreamWriter
 from .callbacks import BaseAICallbackHandler
+
+
+class AdapterOptions(TypedDict, total=False):
+    """Configuration options for LangChain to AI SDK adapter.
+    
+    Attributes:
+        protocol_version: AI SDK protocol version ('v4' or 'v5'), defaults to 'v4'
+        auto_events: Whether to automatically emit start/finish events, defaults to True
+        auto_close: Whether to automatically close the stream, defaults to True
+        emit_start: Whether to emit start events, defaults to True
+        emit_finish: Whether to emit finish events, defaults to True
+    """
+    protocol_version: Literal['v4', 'v5']
+    auto_events: bool
+    auto_close: bool
+    emit_start: bool
+    emit_finish: bool
 
 
 class LangChainAdapter:
@@ -19,7 +36,7 @@ class LangChainAdapter:
         message_id: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
         status: int = 200,
-        options: Optional[Dict[str, Any]] = None
+        options: Optional[AdapterOptions] = None
     ) -> DataStreamResponse:
         """Convert LangChain stream to FastAPI StreamingResponse.
         
@@ -29,7 +46,12 @@ class LangChainAdapter:
             message_id: Optional message ID for tracking
             headers: HTTP headers for the response
             status: HTTP status code
-            options: Control options (auto_events, emit_start, emit_finish, etc.)
+            options: Control options including:
+                - protocol_version: 'v4' (default) or 'v5'
+                - auto_events: Whether to emit start/finish events (default: True)
+                - auto_close: Whether to auto-close stream (default: True)
+                - emit_start: Whether to emit start events (default: True)
+                - emit_finish: Whether to emit finish events (default: True)
         
         Returns:
             DataStreamResponse: StreamingResponse-compatible object
@@ -51,7 +73,7 @@ class LangChainAdapter:
         stream: AsyncIterable[LangChainStreamInput],
         callbacks: Optional[BaseAICallbackHandler] = None,
         message_id: Optional[str] = None,
-        options: Optional[Dict[str, Any]] = None
+        options: Optional[AdapterOptions] = None
     ) -> DataStreamWithEmitters:
         """Convert LangChain stream to DataStreamWithEmitters.
         
@@ -59,13 +81,19 @@ class LangChainAdapter:
             stream: LangChain async stream from astream_events()
             callbacks: Callback handlers for stream events
             message_id: Optional message ID for tracking
-            options: Control options (auto_events, emit_start, emit_finish, etc.)
+            options: Control options including:
+                - protocol_version: 'v4' (default) or 'v5'
+                - auto_events: Whether to emit start/finish events (default: True)
+                - auto_close: Whether to auto-close stream (default: True)
+                - emit_start: Whether to emit start events (default: True)
+                - emit_finish: Whether to emit finish events (default: True)
         
         Returns:
             DataStreamWithEmitters: Stream object with emit methods
         """
         # Parse options
         opts = options or {}
+        protocol_version = opts.get("protocol_version", "v4")  # Default to v4
         auto_events = opts.get("auto_events", True)
         auto_close = opts.get("auto_close", True)
         message_id = message_id or str(uuid.uuid4())
@@ -97,7 +125,7 @@ class LangChainAdapter:
         data_stream_writer: DataStreamWriter,
         callbacks: Optional[BaseAICallbackHandler] = None,
         message_id: Optional[str] = None,
-        options: Optional[Dict[str, Any]] = None
+        options: Optional[AdapterOptions] = None
     ) -> None:
         """Merge LangChain stream into existing data stream.
         
@@ -106,7 +134,12 @@ class LangChainAdapter:
             data_stream_writer: Existing stream writer to merge into
             callbacks: Callback handlers for stream events
             message_id: Optional message ID for tracking
-            options: Control options (auto_events, emit_start, emit_finish, etc.)
+            options: Control options including:
+                - protocol_version: 'v4' (default) or 'v5'
+                - auto_events: Whether to emit start/finish events (default: True)
+                - auto_close: Whether to auto-close stream (default: True)
+                - emit_start: Whether to emit start events (default: True)
+                - emit_finish: Whether to emit finish events (default: True)
         
         Returns:
             None: Merges events into the provided data_stream_writer
@@ -126,7 +159,7 @@ async def to_data_stream(
     stream: AsyncIterable[LangChainStreamInput],
     callbacks: Optional[BaseAICallbackHandler] = None,
     message_id: Optional[str] = None,
-    options: Optional[Dict[str, Any]] = None
+    options: Optional[AdapterOptions] = None
 ) -> AsyncGenerator[UIMessageChunk, None]:
     """Legacy function - use LangChainAdapter.to_data_stream instead."""
     data_stream = LangChainAdapter.to_data_stream(stream, callbacks, message_id, options)
@@ -138,7 +171,7 @@ async def to_data_stream_response(
     stream: AsyncIterable[LangChainStreamInput],
     callbacks: Optional[BaseAICallbackHandler] = None,
     message_id: Optional[str] = None,
-    options: Optional[Dict[str, Any]] = None,
+    options: Optional[AdapterOptions] = None,
     headers: Optional[Dict[str, str]] = None,
     status: int = 200
 ) -> DataStreamResponse:
@@ -151,7 +184,7 @@ async def to_data_stream_response(
         stream: Input stream from LangChain
         callbacks: Optional callbacks (BaseAICallbackHandler)
         message_id: Optional message ID (auto-generated if not provided)
-        options: Control options (auto_events, auto_close, emit_start, emit_finish, etc.)
+        options: Control options including protocol_version ('v4'/'v5'), auto_events, auto_close, etc.
         headers: Optional HTTP headers
         status: HTTP status code
         
@@ -180,7 +213,7 @@ async def merge_into_data_stream(
     data_stream_writer: DataStreamWriter,
     callbacks: Optional[BaseAICallbackHandler] = None,
     message_id: Optional[str] = None,
-    options: Optional[Dict[str, Any]] = None
+    options: Optional[AdapterOptions] = None
 ) -> None:
     """Merge LangChain output streams into an existing data stream.
     
@@ -192,7 +225,7 @@ async def merge_into_data_stream(
         data_stream_writer: Target data stream writer
         callbacks: Optional callbacks (BaseAICallbackHandler)
         message_id: Optional message ID (auto-generated if not provided)
-        options: Control options (auto_events, auto_close, emit_start, emit_finish, etc.)
+        options: Control options including protocol_version ('v4'/'v5'), auto_events, auto_close, etc.
         
     Example:
         ```python
