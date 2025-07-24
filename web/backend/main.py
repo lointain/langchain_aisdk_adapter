@@ -119,10 +119,11 @@ async def chat_auto_stream(request: ChatRequest):
         )
          
         # 2. 转换为AI SDK流（自动处理text-delta, tool相关事件等）
-        ai_sdk_stream = await LangChainAdapter.to_data_stream_response(
+        ai_sdk_stream = LangChainAdapter.to_data_stream_response(
             agent_stream,
             callbacks=None,
-            message_id=request.message_id
+            message_id=request.message_id,
+            options={"protocol_version": request.protocol_version, "output_format": "protocol"}
         )
          
         # 3. 可选：在流中手动添加额外内容
@@ -154,11 +155,15 @@ async def chat_manual_stream(request: ChatRequest):
         
         # 1. 首先创建一个空的流（关闭自动事件）
         empty_stream = async_generator_from_list([])
-        ai_sdk_stream = await LangChainAdapter.to_data_stream_response(
+        ai_sdk_stream = LangChainAdapter.to_data_stream_response(
             empty_stream,
             callbacks=None,
             message_id=request.message_id,
-            options={"auto_events": False}  # 关闭自动事件
+            options={
+                "auto_events": False,  # 关闭自动事件
+                "protocol_version": request.protocol_version,
+                "output_format": "protocol"
+            }
         )
         
         # 2. 后台任务：直接在事件循环中处理并调用 adapter 的 emit 方法

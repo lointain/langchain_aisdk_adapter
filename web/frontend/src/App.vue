@@ -25,6 +25,18 @@
                 <option value="manual">Manual Mode</option>
               </select>
             </div>
+            <!-- 协议版本选择 -->
+            <div class="flex items-center gap-2">
+              <label class="text-sm font-medium text-gray-700">Protocol:</label>
+              <select 
+                v-model="protocolVersion" 
+                class="input text-sm px-3 py-1 min-w-0 w-auto"
+                @change="clearMessages"
+              >
+                <option value="v4">v4 (with usage)</option>
+                <option value="v5">v5 (latest)</option>
+              </select>
+            </div>
             <!-- 状态指示器 -->
             <div class="flex items-center gap-2">
               <div 
@@ -58,7 +70,7 @@
               </div>
               <div class="flex-1">
                 <h3 class="font-semibold text-gray-900 mb-2">
-                  Current Mode: {{ streamMode === 'auto' ? 'Auto Mode' : 'Manual Mode' }}
+                  Current Mode: {{ streamMode === 'auto' ? 'Auto Mode' : 'Manual Mode' }} | Protocol: {{ protocolVersion }}
                 </h3>
                 <p class="text-sm text-gray-600">
                   <template v-if="streamMode === 'auto'">
@@ -68,6 +80,14 @@
                   <template v-else>
                     Uses LangChain callbacks for precise control over each stage of the stream, suitable for complex workflow scenarios.
                     Thread safety guaranteed through instance isolation and context managers.
+                  </template>
+                  <br><br>
+                  <strong>Protocol {{ protocolVersion }}:</strong> 
+                  <template v-if="protocolVersion === 'v4'">
+                    Includes usage information (token counts) in termination markers for cost tracking.
+                  </template>
+                  <template v-else>
+                    Latest protocol version with enhanced features and optimizations.
                   </template>
                 </p>
               </div>
@@ -283,6 +303,7 @@ import { useChat } from '@ai-sdk/vue'
 
 // 响应式数据
 const streamMode = ref('auto')
+const protocolVersion = ref('v4')
 const backendStatus = ref('disconnected')
 const messagesContainer = ref(null)
 
@@ -304,7 +325,8 @@ const {
   streamProtocol: 'data', // 使用 AI SDK Data Stream Protocol
   body: {
     message_id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    stream_mode: streamMode.value
+    stream_mode: streamMode.value,
+    protocol_version: protocolVersion.value
   },
   onError: (error) => {
     console.error('Chat error:', error)

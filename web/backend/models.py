@@ -35,6 +35,7 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(..., description="Messages array from useChat")
     message_id: Optional[str] = Field(None, description="Optional message ID")
     stream_mode: StreamMode = Field(StreamMode.AUTO, description="Stream processing mode")
+    protocol_version: Optional[str] = Field("v4", description="AI SDK protocol version: v4 or v5")
     agent_config: Optional[Dict[str, Any]] = Field(None, description="Agent configuration")
 
 class ChatResponse(BaseModel):
