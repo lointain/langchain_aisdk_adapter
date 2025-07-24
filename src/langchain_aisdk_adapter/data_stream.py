@@ -490,8 +490,8 @@ class DataStreamWithEmitters:
                         manual_ended = True
                         continue
                     elif source == "error":
-                        # Log error but continue
-                        continue
+                        # Re-raise the error
+                        raise chunk
                     elif source in ("auto", "manual"):
                         # Remove meta flag if present
                         clean_chunk = dict(chunk)
@@ -600,6 +600,21 @@ class DataStreamWithEmitters:
             return ""
         return self._protocol_config.strategy.get_termination_marker()
 
+    @property
+    def message_id(self) -> str:
+        """Get the message ID."""
+        return self._message_id
+    
+    @property
+    def protocol_version(self) -> str:
+        """Get the protocol version."""
+        return self._protocol_version
+    
+    @property
+    def output_format(self) -> str:
+        """Get the output format."""
+        return self._output_format
+    
     async def close(self):
         """Close the stream."""
         self._closed = True
