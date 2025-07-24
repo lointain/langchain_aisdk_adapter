@@ -67,10 +67,10 @@ function App() {
   }, []);
 
   const quickQuestions = [
-    "什么是 LangChain？",
-    "如何使用 AI SDK？",
-    "解释一下流式响应",
-    "什么是 RAG？"
+    "What is LangChain?",
+    "How to use AI SDK?",
+    "Explain streaming response",
+    "What is RAG?"
   ];
 
   return (
@@ -79,7 +79,7 @@ function App() {
         {/* Header */}
         <div className="header">
           <h1 className="title">AI Chat Assistant</h1>
-          <p className="subtitle">与 AI 助手进行智能对话</p>
+          <p className="subtitle">Intelligent conversation with AI assistant</p>
           <div className={`status ${
             backendStatus === 'checking' ? 'checking' :
             backendStatus === 'connected' ? 'connected' :
@@ -87,9 +87,9 @@ function App() {
           }`}>
             <div className="status-dot"></div>
             <span>
-              {backendStatus === 'checking' ? '检查后端连接...' :
-               backendStatus === 'connected' ? '后端已连接' :
-               '后端连接失败'}
+              {backendStatus === 'checking' ? 'Checking backend connection...' :
+               backendStatus === 'connected' ? 'Backend connected' :
+               'Backend connection failed'}
             </span>
           </div>
         </div>
@@ -100,12 +100,12 @@ function App() {
           <div className="chat-container">
             {/* Chat Header */}
             <div className="chat-header">
-              <h2 className="chat-title">对话</h2>
+              <h2 className="chat-title">Chat</h2>
               <button
                 onClick={clearMessages}
                 className="clear-btn"
               >
-                清空对话
+                Clear Chat
               </button>
             </div>
 
@@ -116,8 +116,8 @@ function App() {
              >
               {messages.length === 0 ? (
                 <div style={{textAlign: 'center', color: '#6b7280', marginTop: '2rem'}}>
-                  <p style={{fontSize: '1.125rem', marginBottom: '0.5rem'}}>👋 欢迎使用 AI 助手！</p>
-                  <p>开始对话或选择右侧的快速问题</p>
+                  <p style={{fontSize: '1.125rem', marginBottom: '0.5rem'}}>👋 Welcome to AI Assistant!</p>
+                  <p>Start a conversation or select quick questions on the right</p>
                 </div>
               ) : (
                 messages.map((message, index) => (
@@ -148,7 +148,7 @@ function App() {
                     <div className="loading-dot"></div>
                     <div className="loading-dot"></div>
                   </div>
-                  <span>AI 正在思考...</span>
+                  <span>AI is thinking...</span>
                 </div>
               )}
             </div>
@@ -161,7 +161,7 @@ function App() {
                   type="text"
                   value={input}
                   onChange={handleInputChange}
-                  placeholder="输入您的问题..."
+                  placeholder="Enter your question..."
                   className="input-field"
                   disabled={isLoading}
                 />
@@ -170,7 +170,7 @@ function App() {
                   disabled={!input.trim() || isLoading}
                   className="send-btn"
                 >
-                  {isLoading ? '发送中...' : '发送'}
+                  {isLoading ? 'Sending...' : 'Send'}
                 </button>
               </form>
             </div>
@@ -178,7 +178,7 @@ function App() {
 
           {/* Sidebar */}
           <div className="sidebar">
-            <h3 className="sidebar-title">快速问题</h3>
+            <h3 className="sidebar-title">Quick Questions</h3>
             <div className="quick-questions">
               {quickQuestions.map((question, index) => (
                 <button
@@ -197,7 +197,7 @@ function App() {
         {/* Error Display */}
         {error && (
           <div className="error-message">
-            错误: {error.message}
+            Error: {error.message}
           </div>
         )}
       </div>

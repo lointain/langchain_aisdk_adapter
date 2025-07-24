@@ -123,7 +123,6 @@
                 <p>Start chatting! You can ask me anything.</p>
                 <p class="text-sm mt-2">I can query internal employee birthday information.</p>
               </div>
-              
               <div v-for="(message, index) in messages" :key="index" class="mb-4">
                 <!-- 用户消息 -->
                 <div v-if="message.role === 'user'" class="flex justify-end">
@@ -148,8 +147,54 @@
                         {{ message.error ? 'Error' : 'AI Assistant' }}
                       </span>
                     </div>
-                    <div class="whitespace-pre-wrap" :class="message.error ? 'text-red-700' : ''">
-                      {{ message.content }}
+                    
+                    <!-- 渲染消息的各个部分 -->
+                    <div class="message-content">
+                      <template v-for="(part, partIndex) in (message.parts || [])" :key="partIndex">
+                        <!-- 文本部分 -->
+                        <div v-if="part.type === 'text'" class="whitespace-pre-wrap" :class="message.error ? 'text-red-700' : ''">
+                          {{ part.text }}
+                        </div>
+                        
+                        <!-- 工具调用部分 -->
+                        <div v-else-if="part.type === 'tool-invocation'" class="tool-call-container my-2">
+                          <div class="tool-call-header">
+                            <div class="flex items-center gap-2">
+                              <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                              </svg>
+                              <span class="tool-name">{{ part.toolInvocation?.toolName || 'Tool' }}</span>
+                            </div>
+                          </div>
+                          <div class="tool-call-content">
+                            <div class="tool-input" v-if="part.toolInvocation?.args">
+                              <strong>Input:</strong> {{ JSON.stringify(part.toolInvocation.args, null, 2) }}
+                            </div>
+                            <div class="tool-result" v-if="part.toolInvocation?.result">
+                              <strong>Result:</strong>
+                              <div class="employee-info" v-if="part.toolInvocation.result && typeof part.toolInvocation.result === 'object'">
+                                <div v-for="(value, key) in part.toolInvocation.result" :key="key" class="info-item">
+                                  <span class="info-label">{{ formatFieldLabel(key) }}:</span>
+                                  <span class="info-value" :class="getFieldClass(key, value)">{{ value }}</span>
+                                </div>
+                              </div>
+                              <div v-else class="text-result">
+                                {{ part.toolInvocation.result }}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <!-- 步骤开始标记 -->
+                        <div v-else-if="part.type === 'step-start'" class="step-divider my-2">
+                          <div class="w-full h-px bg-gray-200"></div>
+                        </div>
+                        
+                        <!-- 回退到原始内容显示 -->
+                        <div v-else class="whitespace-pre-wrap" :class="message.error ? 'text-red-700' : ''" v-html="formatMessageContent(message.content)">
+                        </div>
+                      </template>
                     </div>
                     <div v-if="message.error && message.errorDetails" class="mt-2 p-2 bg-red-100 rounded text-xs text-red-600">
                       <strong>Error Details:</strong> {{ message.errorDetails }}
@@ -180,7 +225,7 @@
             </div>
             
             <!-- Tool Information Display -->
-            <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div class="mb-4 p-2 bg-blue-50 border border-blue-200 rounded-lg">
               <div class="flex items-center gap-2 mb-2">
                 <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -393,6 +438,37 @@ const checkBackendStatus = async () => {
     console.error('Backend health check failed:', error)
     backendStatus.value = 'disconnected'
   }
+}
+
+// 格式化消息内容，用于回退显示
+const formatMessageContent = (content) => {
+  if (!content) return ''
+  return content
+}
+
+// 格式化字段标签
+const formatFieldLabel = (key) => {
+  const labelMap = {
+    'employee': 'Employee',
+    'department': 'Department', 
+    'birthday': 'Birthday',
+    'access_level': 'Access Level',
+    'name': 'Name',
+    'id': 'ID'
+  }
+  return labelMap[key] || key.charAt(0).toUpperCase() + key.slice(1)
+}
+
+// 获取字段样式类
+const getFieldClass = (key, value) => {
+  const classMap = {
+    'employee': 'employee-field',
+    'name': 'name-highlight',
+    'department': 'department-field',
+    'birthday': 'birthday-field',
+    'access_level': 'access-field'
+  }
+  return classMap[key] || ''
 }
 
 // 监听消息变化，自动滚动到底部
@@ -714,5 +790,206 @@ code {
 
 .text-red-700 {
   color: #b91c1c;
+}
+
+/* 结构化数据高亮样式 */
+.employee-field {
+  background: linear-gradient(120deg, #e0f2fe 0%, #b3e5fc 100%);
+  color: #01579b;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  border-left: 3px solid #0288d1;
+  display: inline-block;
+  margin: 1px 0;
+}
+
+.department-field {
+  background: linear-gradient(120deg, #f3e5f5 0%, #e1bee7 100%);
+  color: #4a148c;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  border-left: 3px solid #7b1fa2;
+  display: inline-block;
+  margin: 1px 0;
+}
+
+.birthday-field {
+  background: linear-gradient(120deg, #fff3e0 0%, #ffcc80 100%);
+  color: #e65100;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  border-left: 3px solid #f57c00;
+  display: inline-block;
+  margin: 1px 0;
+}
+
+.access-field {
+  background: linear-gradient(120deg, #e8f5e8 0%, #c8e6c9 100%);
+  color: #1b5e20;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  border-left: 3px solid #388e3c;
+  display: inline-block;
+  margin: 1px 0;
+}
+
+.name-highlight {
+  background: linear-gradient(120deg, #ddd6fe 0%, #c4b5fd 100%);
+  color: #6b21a8;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-weight: 500;
+  border: 1px solid #8b5cf6;
+}
+
+.famous-name-highlight {
+  background: linear-gradient(120deg, #fef3c7 0%, #fde68a 100%);
+  color: #92400e;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-weight: 500;
+  border: 1px solid #f59e0b;
+}
+
+.date-highlight {
+  background: linear-gradient(120deg, #fce4ec 0%, #f8bbd9 100%);
+  color: #880e4f;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-weight: 500;
+  border: 1px solid #ad1457;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.department-highlight {
+  background: linear-gradient(120deg, #e0f7fa 0%, #b2ebf2 100%);
+  color: #006064;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-weight: 500;
+  border: 1px solid #00838f;
+}
+
+/* 悬停效果 */
+.employee-field:hover,
+.department-field:hover,
+.birthday-field:hover,
+.access-field:hover {
+  transform: scale(1.02);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.name-highlight:hover {
+  background: linear-gradient(120deg, #c4b5fd 0%, #a78bfa 100%);
+  transform: scale(1.02);
+  transition: all 0.2s ease;
+}
+
+.famous-name-highlight:hover {
+  background: linear-gradient(120deg, #fde68a 0%, #fcd34d 100%);
+  transform: scale(1.02);
+  transition: all 0.2s ease;
+}
+
+.date-highlight:hover {
+  background: linear-gradient(120deg, #f8bbd9 0%, #f48fb1 100%);
+  transform: scale(1.02);
+  transition: all 0.2s ease;
+}
+
+.department-highlight:hover {
+  background: linear-gradient(120deg, #b2ebf2 0%, #80deea 100%);
+  transform: scale(1.02);
+  transition: all 0.2s ease;
+}
+
+/* 工具调用样式 */
+.tool-call-container {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 1px solid #0ea5e9;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+}
+
+.tool-call-header {
+  margin-bottom: 8px;
+}
+
+.tool-name {
+  font-weight: 600;
+  color: #0369a1;
+  font-size: 0.875rem;
+}
+
+.tool-call-content {
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 0.875rem;
+}
+
+.tool-input {
+  margin-bottom: 8px;
+  color: #374151;
+}
+
+.tool-result {
+  color: #374151;
+}
+
+.employee-info {
+  margin-top: 8px;
+}
+
+.info-item {
+  display: flex;
+  margin-bottom: 4px;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-label {
+  font-weight: 600;
+  color: #4b5563;
+  min-width: 100px;
+}
+
+.info-value {
+  color: #111827;
+}
+
+.text-result {
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: #f9fafb;
+  border-radius: 4px;
+  border-left: 3px solid #10b981;
+}
+
+.step-divider {
+  margin: 12px 0;
+}
+
+.my-2 {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.h-px {
+  height: 1px;
+}
+
+.bg-gray-200 {
+  background-color: #e5e7eb;
 }
 </style>
