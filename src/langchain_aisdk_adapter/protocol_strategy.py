@@ -33,7 +33,7 @@ class ProtocolStrategy(ABC):
         pass
     
     @abstractmethod
-    def get_termination_marker(self) -> str:
+    def get_termination_marker(self, usage_info: Optional[Dict[str, int]] = None) -> str:
         """Get protocol-specific stream termination marker."""
         pass
 
@@ -170,9 +170,11 @@ class AISDKv4Strategy(ProtocolStrategy):
             "delta": chunk
         } for chunk in text_chunks]
     
-    def get_termination_marker(self) -> str:
+    def get_termination_marker(self, usage_info: Optional[Dict[str, int]] = None) -> str:
         """Get v4 termination marker."""
-        return 'd:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n'
+        if usage_info is None:
+            usage_info = {"promptTokens": 0, "completionTokens": 0}
+        return f'd:{{"finishReason":"stop","usage":{json.dumps(usage_info)}}}\n'
 
 
 class AISDKv5Strategy(ProtocolStrategy):
@@ -216,7 +218,7 @@ class AISDKv5Strategy(ProtocolStrategy):
         chunks.append({"type": "text-end", "id": text_id})
         return chunks
     
-    def get_termination_marker(self) -> str:
+    def get_termination_marker(self, usage_info: Optional[Dict[str, int]] = None) -> str:
         """Get v5 termination marker."""
         return "data: [DONE]\n\n"
 

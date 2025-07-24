@@ -56,7 +56,8 @@ class DataStreamWithEmitters:
         message_builder: Optional[MessageBuilder] = None,
         callbacks: Optional[BaseAICallbackHandler] = None,
         protocol_version: str = "v4",
-        output_format: str = "chunks"  # "chunks" or "protocol"
+        output_format: str = "chunks",  # "chunks" or "protocol"
+        stream_processor: Optional[Any] = None  # StreamProcessor instance for usage tracking
     ):
         self._stream_generator = stream_generator
         self._message_id = message_id
@@ -68,6 +69,7 @@ class DataStreamWithEmitters:
         self._callbacks = callbacks
         self._protocol_version = protocol_version
         self._output_format = output_format
+        self._stream_processor = stream_processor
         
         # Initialize protocol components if protocol output is enabled
         if self._output_format == "protocol":
@@ -584,8 +586,13 @@ class DataStreamWithEmitters:
                 if formatted_chunk:
                     return formatted_chunk
         
-        # Send protocol-specific termination marker
-        return self._protocol_config.strategy.get_termination_marker()
+        # Get usage information from stream processor if available
+        usage_info = None
+        if self._stream_processor and hasattr(self._stream_processor, 'current_usage'):
+            usage_info = self._stream_processor.current_usage
+        
+        # Send protocol-specific termination marker with usage info
+        return self._protocol_config.strategy.get_termination_marker(usage_info)
     
     def _get_termination_text(self) -> str:
         """Get termination text for protocol output."""

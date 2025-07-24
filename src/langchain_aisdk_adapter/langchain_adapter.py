@@ -165,7 +165,8 @@ class LangChainAdapter:
             processor.message_builder,
             callbacks,
             protocol_version,
-            output_format
+            output_format,
+            processor  # Pass processor instance for usage tracking
         )
     
     @staticmethod

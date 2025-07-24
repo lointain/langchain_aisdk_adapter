@@ -10,8 +10,8 @@
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore"
   },
   "dependencies": {
-    "@ai-sdk/vue": "^0.0.54",
-    "ai": "^3.4.32",
+    "@ai-sdk/vue": "^1.2.12",
+    "ai": "^4.3.17",
     "vue": "^3.4.0",
     "@vueuse/core": "^11.0.0",
     "axios": "^1.6.0"
