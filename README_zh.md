@@ -27,7 +27,7 @@
 ## 安装
 
 ```bash
-pip install langchain-aisdk-adapter
+pip install -i https://test.pypi.org/simple/ langchain-aisdk-adapter
 ```
 
 ## 快速开始

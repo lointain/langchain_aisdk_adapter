@@ -27,7 +27,7 @@ A Python adapter that aims to convert LangChain streaming outputs to AI SDK comp
 ## Installation
 
 ```bash
-pip install langchain-aisdk-adapter
+pip install -i https://test.pypi.org/simple/ langchain-aisdk-adapter
 ```
 
 ## Quick Start
