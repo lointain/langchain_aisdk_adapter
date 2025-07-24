@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langchain-aisdk-adapter"
-version = "0.0.1a1"
+version = "0.0.2a1"
 description = "A Python package that converts LangChain/LangGraph event streams to AI SDK UI Stream Protocol format"
 readme = "README.md"
 requires-python = ">=3.9.0,<4.0"
@@ -23,8 +23,7 @@ keywords = [
     "adapter",
     "langgraph",
     "ai",
-    "llm",
-    "fastapi"
+    "llm"
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -44,11 +43,16 @@ dependencies = [
     "pydantic>=2.0.0",
     "langchain-core>=0.1.0",
     "typing-extensions>=4.0.0",
-    "python-dotenv>=1.0.0"
+    "python-dotenv>=1.0.0",
+    "aiohttp>=3.12.14",
+    "langchain-community>=0.3.27",
+    "uvicorn[standard]>=0.35.0",
+    "python-multipart>=0.0.20",
+    "aiofiles>=24.1.0",
+    "fastapi>=0.116.1",
 ]
 
 [project.optional-dependencies]
-# Development dependencies (testing, linting, formatting)
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
@@ -59,41 +63,22 @@ dev = [
     "mypy>=1.0.0",
     "pre-commit>=3.0.0"
 ]
-# Testing only dependencies
 test = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0"
 ]
-# LangChain/LangGraph integration examples
 examples = [
     "langchain>=0.1.0",
     "langgraph>=0.1.0",
     "langchain-openai>=0.1.0",
     "openai>=1.0.0"
 ]
-# Web framework examples (FastAPI, etc.)
-web = [
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
-    "langchain>=0.1.0",
-    "langchain-openai>=0.1.0",
-    "openai>=1.0.0",
-]
-# Documentation dependencies
-docs = [
-    "mkdocs>=1.5.0",
-    "mkdocs-material>=9.0.0",
-    "mkdocstrings[python]>=0.22.0"
-]
-# All optional dependencies combined
 all = [
     "langchain>=0.1.0",
     "langgraph>=0.1.0",
     "langchain-openai>=0.1.0",
     "openai>=1.0.0",
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
@@ -101,7 +86,9 @@ all = [
     "isort>=5.12.0",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
-    "pre-commit>=3.0.0",
+    "pre-commit>=3.0.0"
+]
+docs = [
     "mkdocs>=1.5.0",
     "mkdocs-material>=9.0.0",
     "mkdocstrings[python]>=0.22.0"
@@ -174,8 +161,7 @@ python_functions = ["test_*"]
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
-    "slow: Slow tests",
-    "asyncio: Async tests"
+    "slow: Slow tests"
 ]
 asyncio_mode = "auto"
 
@@ -199,10 +185,4 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod"
-]
-
-[dependency-groups]
-dev = [
-    "build>=1.2.2.post1",
-    "twine>=6.1.0",
 ]
