@@ -169,7 +169,7 @@ class MessageBuilder:
                         step = sum(1 for part in self.parts if hasattr(part, 'toolInvocation'))
                         
                         tool_invocation = ToolInvocation(
-                            state="error",
+                            state="result",
                             step=step,
                             toolCallId=tool_call_id,
                             toolName=tool_info["toolName"],
