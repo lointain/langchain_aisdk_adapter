@@ -16,18 +16,16 @@ except ImportError:
 
 
 class AdapterOptions(TypedDict, total=False):
-    """Configuration options for LangChain to AI SDK adapter.
+    """Options for controlling adapter behavior.
     
     Attributes:
         protocol_version: AI SDK protocol version ('v4' or 'v5'), defaults to 'v4'
-        output_format: Output format ('chunks' or 'protocol'), defaults to 'chunks'
         auto_events: Whether to automatically emit start/finish events, defaults to True
         auto_close: Whether to automatically close the stream, defaults to True
         emit_start: Whether to emit start events, defaults to True
         emit_finish: Whether to emit finish events, defaults to True
     """
     protocol_version: Literal['v4', 'v5']
-    output_format: Literal['chunks', 'protocol']
     auto_events: bool
     auto_close: bool
     emit_start: bool
@@ -56,7 +54,6 @@ class LangChainAdapter:
             status: HTTP status code
             options: Control options including:
                 - protocol_version: 'v4' (default) or 'v5'
-                - output_format: 'protocol' (default) or 'chunks'
                 - auto_events: Whether to emit start/finish events (default: True)
                 - auto_close: Whether to auto-close stream (default: True)
                 - emit_start: Whether to emit start events (default: True)
@@ -68,45 +65,28 @@ class LangChainAdapter:
         # Parse options
         opts = options or {}
         protocol_version = opts.get("protocol_version", "v4")  # Default to v4
-        output_format = opts.get("output_format", "protocol")  # Default to protocol for response
         
-        # Create options with protocol output format for response
-        response_options = dict(opts)
-        response_options["output_format"] = output_format
-        
-        # Get DataStreamWithEmitters
+        # Get DataStreamWithEmitters with protocol format
         data_stream = LangChainAdapter.to_data_stream(
             stream=stream,
             callbacks=callbacks,
             message_id=message_id,
-            options=response_options
+            options=opts
         )
         
-        # If output_format is already protocol, use DataStreamWithEmitters directly
-        if output_format == "protocol":
-            # Get protocol-specific headers
-            from .protocol_strategy import ProtocolConfig
-            protocol_config = ProtocolConfig(protocol_version)
-            protocol_headers = protocol_config.strategy.get_headers()
-            if headers:
-                protocol_headers.update(headers)
-            
-            from fastapi.responses import StreamingResponse
-            return StreamingResponse(
-                content=data_stream,
-                headers=protocol_headers,
-                status_code=status
-            )
-        else:
-            # Use DataStreamResponse to handle protocol conversion
-            from .data_stream import DataStreamResponse
-            
-            return DataStreamResponse(
-                stream=data_stream,
-                protocol_version=protocol_version,
-                headers=headers,
-                status=status
-            )
+        # Get protocol-specific headers
+        from .protocol_strategy import ProtocolConfig
+        protocol_config = ProtocolConfig(protocol_version)
+        protocol_headers = protocol_config.strategy.get_headers()
+        if headers:
+            protocol_headers.update(headers)
+        
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(
+            content=data_stream,
+            headers=protocol_headers,
+            status_code=status
+        )
     
 
     
@@ -125,7 +105,6 @@ class LangChainAdapter:
             message_id: Optional message ID for tracking
             options: Control options including:
                 - protocol_version: 'v4' (default) or 'v5'
-                - output_format: 'chunks' (default) or 'protocol'
                 - auto_events: Whether to emit start/finish events (default: True)
                 - auto_close: Whether to auto-close stream (default: True)
                 - emit_start: Whether to emit start events (default: True)
@@ -138,7 +117,6 @@ class LangChainAdapter:
         # Parse options
         opts = options or {}
         protocol_version = opts.get("protocol_version", "v4")  # Default to v4
-        output_format = opts.get("output_format", "protocol")  # Default to protocol format
         auto_events = opts.get("auto_events", True)
         auto_close = opts.get("auto_close", True)
 
@@ -165,7 +143,7 @@ class LangChainAdapter:
             processor.message_builder,
             callbacks,
             protocol_version,
-            output_format,
+            "protocol",  # Always use protocol format
             processor  # Pass processor instance for usage tracking
         )
     
