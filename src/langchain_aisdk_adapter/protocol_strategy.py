@@ -55,7 +55,8 @@ class AISDKv4Strategy(ProtocolStrategy):
         chunk_type = chunk.get("type")
         
         if chunk_type == "text-delta":
-            delta = chunk.get("delta", "")
+            # Support both 'delta' and 'textDelta' field names for compatibility
+            delta = chunk.get("delta") or chunk.get("textDelta", "")
             # Escape quotes and format as v4 text part
             escaped_delta = json.dumps(delta, ensure_ascii=False)
             return f"0:{escaped_delta}\n"
@@ -68,7 +69,13 @@ class AISDKv4Strategy(ProtocolStrategy):
             # v4 doesn't have explicit text-end, handled by next non-text chunk
             return ""
         
+        elif chunk_type == "start":
+            # v4 protocol: skip start to avoid duplicate f events
+            # Only start-step events should generate f events
+            return ""
+        
         elif chunk_type == "start-step":
+            # v4 protocol: start-step events generate f events with messageId
             message_id = chunk.get("messageId", "")
             if message_id:
                 return f'f:{{"messageId":"{message_id}"}}\n'
@@ -92,7 +99,8 @@ class AISDKv4Strategy(ProtocolStrategy):
             return f'e:{json.dumps(step_data, ensure_ascii=False)}\n'
         
         elif chunk_type == "tool-input-start":
-            # v4 protocol doesn't output tool-input-start separately
+            # v4 protocol: skip tool-input-start to avoid duplicate Protocol 9 events
+            # Only tool-input-available should generate Protocol 9
             return ""
         
         elif chunk_type == "tool-input-delta":
