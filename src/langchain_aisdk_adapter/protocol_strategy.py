@@ -70,12 +70,20 @@ class AISDKv4Strategy(ProtocolStrategy):
         
         elif chunk_type == "start-step":
             message_id = chunk.get("messageId", "")
-            return f'f:{{"messageId":"{message_id}"}}\n'
+            if message_id:
+                return f'f:{{"messageId":"{message_id}"}}\n'
+            else:
+                return ""
         
         elif chunk_type == "finish-step":
             finish_reason = chunk.get("finishReason", "stop")
             usage = chunk.get("usage", {})
             is_continued = chunk.get("isContinued", False)
+            
+            # Set default usage if empty
+            if not usage:
+                usage = {"promptTokens": 0, "completionTokens": 0}
+            
             step_data = {
                 "finishReason": finish_reason,
                 "usage": usage,
@@ -84,22 +92,12 @@ class AISDKv4Strategy(ProtocolStrategy):
             return f'e:{json.dumps(step_data, ensure_ascii=False)}\n'
         
         elif chunk_type == "tool-input-start":
-            tool_call_id = chunk.get("toolCallId", "")
-            tool_name = chunk.get("toolName", "")
-            tool_data = {
-                "toolCallId": tool_call_id,
-                "toolName": tool_name
-            }
-            return f'b:{json.dumps(tool_data, ensure_ascii=False)}\n'
+            # v4 protocol doesn't output tool-input-start separately
+            return ""
         
         elif chunk_type == "tool-input-delta":
-            tool_call_id = chunk.get("toolCallId", "")
-            delta = chunk.get("delta", "")
-            tool_data = {
-                "toolCallId": tool_call_id,
-                "argsTextDelta": delta
-            }
-            return f'c:{json.dumps(tool_data, ensure_ascii=False)}\n'
+            # v4 protocol doesn't output tool-input-delta separately
+            return ""
         
         elif chunk_type == "tool-input-available":
             tool_call_id = chunk.get("toolCallId", "")
@@ -154,6 +152,7 @@ class AISDKv4Strategy(ProtocolStrategy):
         elif chunk_type == "finish":
             finish_reason = chunk.get("finishReason", "stop")
             usage = chunk.get("usage", {})
+            
             finish_data = {
                 "finishReason": finish_reason,
                 "usage": usage
@@ -173,7 +172,7 @@ class AISDKv4Strategy(ProtocolStrategy):
     
     def get_termination_marker(self) -> str:
         """Get v4 termination marker."""
-        return 'd:{"finishReason":"stop","usage":{}}\n'
+        return 'd:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n'
 
 
 class AISDKv5Strategy(ProtocolStrategy):
@@ -225,7 +224,7 @@ class AISDKv5Strategy(ProtocolStrategy):
 class ProtocolConfig:
     """Protocol configuration manager."""
     
-    def __init__(self, version: str = "v5"):
+    def __init__(self, version: str = "v4"):
         """Initialize protocol configuration.
         
         Args:

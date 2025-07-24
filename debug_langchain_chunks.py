@@ -115,6 +115,7 @@ Thought:{agent_scratchpad}"""
             
             elif event_type == "on_chat_model_end":
                 print(f"  Final accumulated text: {repr(accumulated_text)}")
+                print(f"  Event data: {data}")
                 print()
                 
     except Exception as e:

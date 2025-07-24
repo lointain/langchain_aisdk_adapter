@@ -41,6 +41,7 @@ class StreamProcessor:
         self._current_text_id: Optional[str] = None
         self._tool_calls: Dict[str, Dict[str, Any]] = {}
         self._accumulated_text = ""
+        self.current_step_id: Optional[str] = None
         
     async def process_stream(
         self,
@@ -61,6 +62,7 @@ class StreamProcessor:
         self.step_count = 0
         self.text_id = f"text-{uuid.uuid4()}"
         self.tool_calls = {}
+        self.current_usage: Dict[str, int] = {"promptTokens": 0, "completionTokens": 0}
         
         try:
             # Create and process start event only if auto_events is True
@@ -146,13 +148,23 @@ class StreamProcessor:
     def _create_start_step_chunk(self) -> UIMessageChunkStartStep:
         """Create start step chunk."""
         return {
-            "type": "start-step"
+            "type": "start-step",
+            "messageId": self.current_step_id or str(uuid.uuid4())
         }
     
     def _create_finish_step_chunk(self) -> UIMessageChunkFinishStep:
         """Create finish step chunk."""
+        # Determine finish reason based on whether tools were used
+        finish_reason = "tool-calls" if self.tool_completed_in_current_step else "stop"
+        
+        # Use actual usage values from LangChain events
+        usage = self.current_usage.copy()
+        
         return {
-            "type": "finish-step"
+            "type": "finish-step",
+            "finishReason": finish_reason,
+            "usage": usage,
+            "isContinued": False
         }
     
     def _create_start_chunk(self) -> UIMessageChunkStart:
@@ -166,7 +178,9 @@ class StreamProcessor:
     def _create_finish_chunk(self) -> UIMessageChunkFinish:
         """Create finish chunk."""
         return {
-            "type": "finish"
+            "type": "finish",
+            "finishReason": "stop",
+            "usage": self.current_usage.copy()
         }
     
     def _create_error_chunk(self, error_text: str) -> UIMessageChunkError:
@@ -232,14 +246,50 @@ class StreamProcessor:
         """Handle chat model start event."""
         if not self.current_step_active:
             self.step_count += 1
+            # Generate a unique step ID for this step
+            self.current_step_id = str(uuid.uuid4())
             self.text_id = f"text-{uuid.uuid4()}"
             self.has_text_started = False
             self._accumulated_text = ""
-            yield {"type": "start-step"}
+            yield {
+                "type": "start-step",
+                "messageId": self.current_step_id
+            }
             self.current_step_active = True
     
     async def _handle_chat_model_end(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle chat model end event."""
+        # Extract usage information from LangChain event data
+        # First check if usage_metadata is directly in data
+        if "usage_metadata" in data:
+            usage_metadata = data["usage_metadata"]
+            self.current_usage = {
+                "promptTokens": usage_metadata.get("input_tokens", 0),
+                "completionTokens": usage_metadata.get("output_tokens", 0)
+            }
+        else:
+            # Check in output field
+            output = data.get("output", {})
+            if hasattr(output, "usage_metadata"):
+                usage_metadata = output.usage_metadata
+                # usage_metadata is a dict, not an object
+                if isinstance(usage_metadata, dict):
+                    self.current_usage = {
+                        "promptTokens": usage_metadata.get("input_tokens", 0),
+                        "completionTokens": usage_metadata.get("output_tokens", 0)
+                    }
+                else:
+                    self.current_usage = {
+                        "promptTokens": getattr(usage_metadata, "input_tokens", 0),
+                        "completionTokens": getattr(usage_metadata, "output_tokens", 0)
+                    }
+            elif isinstance(output, dict) and "usage_metadata" in output:
+                usage_metadata = output["usage_metadata"]
+                self.current_usage = {
+                    "promptTokens": usage_metadata.get("input_tokens", 0),
+                    "completionTokens": usage_metadata.get("output_tokens", 0)
+                }
+        
         # End text if it was started
         if self.has_text_started:
             yield ProtocolGenerator.create_text_end(self.text_id, self._accumulated_text, self.protocol_version)
@@ -439,7 +489,12 @@ class StreamProcessor:
         # After processing all intermediate steps (all tools in this LLM cycle),
         # finish the current step if we have tool calls and LLM generation is complete
         if self.tool_completed_in_current_step and self.current_step_active and self.llm_generation_complete:
-            yield {"type": "finish-step"}
+            yield {
+                "type": "finish-step",
+                "finishReason": "tool-calls",
+                "usage": self.current_usage.copy(),
+                "isContinued": False
+            }
             self.current_step_active = False
             self.tool_completed_in_current_step = False
             self.need_new_step_for_text = True
@@ -487,13 +542,24 @@ class StreamProcessor:
     def _create_finish_event(self) -> UIMessageChunkFinish:
         """Create stream finish event."""
         return {
-            "type": "finish"
+            "type": "finish",
+            "finishReason": "stop",
+            "usage": self.current_usage.copy()
         }
     
     def _create_finish_step_event(self) -> UIMessageChunkFinishStep:
         """Create finish step event."""
+        # Determine finish reason based on whether tools were used
+        finish_reason = "tool-calls" if self.tool_completed_in_current_step else "stop"
+        
+        # Use actual usage values from LangChain events
+        usage = self.current_usage.copy()
+        
         return {
-            "type": "finish-step"
+            "type": "finish-step",
+            "finishReason": finish_reason,
+            "usage": usage,
+            "isContinued": False
         }
     
     async def _handle_ai_sdk_callbacks(self, callback_handler: BaseAICallbackHandler) -> None:
