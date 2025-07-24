@@ -4,18 +4,25 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI version](https://badge.fury.io/py/langchain-aisdk-adapter.svg)](https://badge.fury.io/py/langchain-aisdk-adapter)
 
-A Python adapter that converts LangChain streaming outputs to AI SDK compatible data streams, supporting both AI SDK v4 and v5 protocols.
+A Python adapter that aims to convert LangChain streaming outputs to AI SDK compatible data streams. This library attempts to bridge the gap between LangChain and AI SDK protocols, though it may not cover all edge cases and scenarios.
 
 ## Features
 
-- **🔄 Protocol Support**: Full support for AI SDK v4 and v5 protocols
-- **📡 Streaming Conversion**: Convert LangChain `astream_events()` to AI SDK data streams
-- **🛠️ Tool Integration**: Support for tool calls and tool outputs
-- **📝 Rich Content**: Handle text, reasoning, files, sources, and custom data
-- **⚡ FastAPI Integration**: Direct integration with FastAPI `StreamingResponse`
-- **🎯 Manual Control**: Emit custom events with `DataStreamWithEmitters`
+- **🔄 Protocol Support**: Basic support for AI SDK v4 and v5 protocols
+- **📡 Streaming Conversion**: Attempts to convert LangChain `astream_events()` to AI SDK data streams
+- **🛠️ Tool Integration**: Limited support for tool calls and tool outputs
+- **📝 Rich Content**: Handles common content types like text, reasoning, files, and sources (some edge cases may not be covered)
+- **⚡ FastAPI Integration**: Basic integration with FastAPI `StreamingResponse`
+- **🎯 Manual Control**: Provides manual event emission capabilities
 - **🔧 Flexible Configuration**: Configurable protocol versions and output formats
-- **📊 Usage Tracking**: Built-in token usage and performance monitoring
+- **📊 Usage Tracking**: Basic token usage and performance monitoring
+
+## Known Limitations
+
+- **Protocol Compatibility**: While we strive for compatibility, some AI SDK features may not be fully supported
+- **Error Handling**: Error scenarios in complex streaming situations may need additional handling
+- **Tool Complexity**: Advanced tool calling patterns may require custom implementation
+- **Testing Coverage**: Some edge cases and complex scenarios may not be thoroughly tested
 
 ## Installation
 
@@ -210,26 +217,28 @@ except Exception as e:
 
 ## Supported Chunk Types
 
-| Chunk Type | AI SDK v4 | AI SDK v5 | Description |
-|------------|-----------|-----------|-------------|
-| `text-start` | ✅ | ✅ | Text generation start |
-| `text-delta` | ✅ | ✅ | Text content delta |
-| `text-end` | ✅ | ✅ | Text generation end |
-| `tool-input-start` | ✅ | ✅ | Tool call input start |
-| `tool-input-delta` | ✅ | ✅ | Tool call input delta |
-| `tool-input-available` | ✅ | ✅ | Tool call input complete |
-| `tool-output-available` | ✅ | ✅ | Tool call output |
-| `tool-output-error` | ✅ | ✅ | Tool call error |
-| `reasoning` | ✅ | ✅ | Reasoning content |
-| `source-url` | ✅ | ✅ | Source URL reference |
-| `source-document` | ✅ | ✅ | Source document |
-| `file` | ✅ | ✅ | File attachment |
-| `data` | ✅ | ✅ | Custom data |
-| `error` | ✅ | ✅ | Error message |
-| `start-step` | ✅ | ✅ | Step start |
-| `finish-step` | ✅ | ✅ | Step finish |
-| `start` | ✅ | ✅ | Stream start |
-| `finish` | ✅ | ✅ | Stream finish |
+| Chunk Type | AI SDK v4 | AI SDK v5 | Description | Notes |
+|------------|-----------|-----------|-------------|-------|
+| `text-start` | ✅ | ✅ | Text generation start | Basic support |
+| `text-delta` | ✅ | ✅ | Text content delta | Well tested |
+| `text-end` | ✅ | ✅ | Text generation end | Basic support |
+| `tool-input-start` | ⚠️ | ⚠️ | Tool call input start | May need refinement |
+| `tool-input-delta` | ⚠️ | ⚠️ | Tool call input delta | Limited testing |
+| `tool-input-available` | ⚠️ | ⚠️ | Tool call input complete | May need refinement |
+| `tool-output-available` | ⚠️ | ⚠️ | Tool call output | Basic support |
+| `tool-output-error` | ⚠️ | ⚠️ | Tool call error | Limited error handling |
+| `reasoning` | ⚠️ | ⚠️ | Reasoning content | Experimental |
+| `source-url` | ⚠️ | ⚠️ | Source URL reference | Basic implementation |
+| `source-document` | ⚠️ | ⚠️ | Source document | Basic implementation |
+| `file` | ⚠️ | ⚠️ | File attachment | Limited support |
+| `data` | ✅ | ✅ | Custom data | Well supported |
+| `error` | ⚠️ | ⚠️ | Error message | Basic error handling |
+| `start-step` | ⚠️ | ⚠️ | Step start | Experimental |
+| `finish-step` | ⚠️ | ⚠️ | Step finish | Experimental |
+| `start` | ✅ | ✅ | Stream start | Well supported |
+| `finish` | ✅ | ✅ | Stream finish | Well supported |
+
+**Legend**: ✅ Well supported, ⚠️ Basic/experimental support, ❌ Not supported
 
 ## Examples
 
@@ -331,7 +340,20 @@ async for chunk in data_stream:
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! This project is still in early development and there are many areas that could benefit from improvement:
+
+- Better error handling and edge case coverage
+- More comprehensive testing
+- Performance optimizations
+- Enhanced protocol compatibility
+- Documentation improvements
+- Real-world usage examples
+
+Please feel free to submit a Pull Request or open an issue to discuss improvements.
+
+## Disclaimer
+
+This library is provided as-is and may not cover all use cases or edge scenarios. While we strive for compatibility with AI SDK protocols, there may be discrepancies or missing features. Users are encouraged to test thoroughly in their specific environments and contribute improvements back to the project.
 
 ## License
 
@@ -340,11 +362,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Changelog
 
 ### v0.0.1a1
-- Initial release
-- Support for AI SDK v4 and v5 protocols
-- Core adapter functionality
-- FastAPI integration
-- Manual event emission
-- Tool call support
-- Rich content types
-- Usage tracking
+- Initial alpha release
+- Basic support for AI SDK v4 and v5 protocols
+- Core adapter functionality (experimental)
+- FastAPI integration (basic)
+- Manual event emission capabilities
+- Limited tool call support
+- Basic content type handling
+- Simple usage tracking

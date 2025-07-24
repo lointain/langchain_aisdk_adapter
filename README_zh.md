@@ -4,18 +4,25 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI version](https://badge.fury.io/py/langchain-aisdk-adapter.svg)](https://badge.fury.io/py/langchain-aisdk-adapter)
 
-一个将 LangChain 流式输出转换为 AI SDK 兼容数据流的 Python 适配器，支持 AI SDK v4 和 v5 协议。
+一个尝试将 LangChain 流式输出转换为 AI SDK 兼容数据流的 Python 适配器。该库致力于在 LangChain 和 AI SDK 协议之间建立桥梁，但可能无法覆盖所有边缘情况和使用场景。
 
 ## 特性
 
-- **🔄 协议支持**：完全支持 AI SDK v4 和 v5 协议
-- **📡 流式转换**：将 LangChain `astream_events()` 转换为 AI SDK 数据流
-- **🛠️ 工具集成**：支持工具调用和工具输出
-- **📝 丰富内容**：处理文本、推理、文件、来源和自定义数据
-- **⚡ FastAPI 集成**：直接与 FastAPI `StreamingResponse` 集成
-- **🎯 手动控制**：使用 `DataStreamWithEmitters` 发出自定义事件
+- **🔄 协议支持**：基本支持 AI SDK v4 和 v5 协议（可能无法覆盖所有协议细节）
+- **📡 流式转换**：尝试将 LangChain `astream_events()` 转换为 AI SDK 数据流
+- **🛠️ 工具集成**：有限支持工具调用和工具输出
+- **📝 丰富内容**：处理常见内容类型如文本、推理、文件和来源（某些边缘情况可能未覆盖）
+- **⚡ FastAPI 集成**：基本的 FastAPI `StreamingResponse` 集成
+- **🎯 手动控制**：提供手动事件发射功能
 - **🔧 灵活配置**：可配置协议版本和输出格式
-- **📊 使用跟踪**：内置令牌使用和性能监控
+- **📊 使用跟踪**：基本的令牌使用和性能监控
+
+## 已知限制
+
+- **协议兼容性**：虽然我们努力保持兼容性，但某些 AI SDK 功能可能无法完全支持
+- **错误处理**：复杂流式场景中的错误情况可能需要额外处理
+- **工具复杂性**：高级工具调用模式可能需要自定义实现
+- **测试覆盖**：某些边缘情况和复杂场景可能未经充分测试
 
 ## 安装
 
@@ -210,26 +217,28 @@ except Exception as e:
 
 ## 支持的块类型
 
-| 块类型 | AI SDK v4 | AI SDK v5 | 描述 |
-|--------|-----------|-----------|------|
-| `text-start` | ✅ | ✅ | 文本生成开始 |
-| `text-delta` | ✅ | ✅ | 文本内容增量 |
-| `text-end` | ✅ | ✅ | 文本生成结束 |
-| `tool-input-start` | ✅ | ✅ | 工具调用输入开始 |
-| `tool-input-delta` | ✅ | ✅ | 工具调用输入增量 |
-| `tool-input-available` | ✅ | ✅ | 工具调用输入完成 |
-| `tool-output-available` | ✅ | ✅ | 工具调用输出 |
-| `tool-output-error` | ✅ | ✅ | 工具调用错误 |
-| `reasoning` | ✅ | ✅ | 推理内容 |
-| `source-url` | ✅ | ✅ | 来源 URL 引用 |
-| `source-document` | ✅ | ✅ | 来源文档 |
-| `file` | ✅ | ✅ | 文件附件 |
-| `data` | ✅ | ✅ | 自定义数据 |
-| `error` | ✅ | ✅ | 错误消息 |
-| `start-step` | ✅ | ✅ | 步骤开始 |
-| `finish-step` | ✅ | ✅ | 步骤结束 |
-| `start` | ✅ | ✅ | 流开始 |
-| `finish` | ✅ | ✅ | 流结束 |
+| 块类型 | AI SDK v4 | AI SDK v5 | 描述 | 备注 |
+|--------|-----------|-----------|------|------|
+| `text-start` | ✅ | ✅ | 文本生成开始 | 基本支持 |
+| `text-delta` | ✅ | ✅ | 文本内容增量 | 测试充分 |
+| `text-end` | ✅ | ✅ | 文本生成结束 | 基本支持 |
+| `tool-input-start` | ⚠️ | ⚠️ | 工具调用输入开始 | 可能需要改进 |
+| `tool-input-delta` | ⚠️ | ⚠️ | 工具调用输入增量 | 测试有限 |
+| `tool-input-available` | ⚠️ | ⚠️ | 工具调用输入完成 | 可能需要改进 |
+| `tool-output-available` | ⚠️ | ⚠️ | 工具调用输出 | 基本支持 |
+| `tool-output-error` | ⚠️ | ⚠️ | 工具调用错误 | 错误处理有限 |
+| `reasoning` | ⚠️ | ⚠️ | 推理内容 | 实验性功能 |
+| `source-url` | ⚠️ | ⚠️ | 来源 URL 引用 | 基本实现 |
+| `source-document` | ⚠️ | ⚠️ | 来源文档 | 基本实现 |
+| `file` | ⚠️ | ⚠️ | 文件附件 | 支持有限 |
+| `data` | ✅ | ✅ | 自定义数据 | 支持良好 |
+| `error` | ⚠️ | ⚠️ | 错误消息 | 基本错误处理 |
+| `start-step` | ⚠️ | ⚠️ | 步骤开始 | 实验性功能 |
+| `finish-step` | ⚠️ | ⚠️ | 步骤结束 | 实验性功能 |
+| `start` | ✅ | ✅ | 流开始 | 支持良好 |
+| `finish` | ✅ | ✅ | 流结束 | 支持良好 |
+
+**图例**：✅ 支持良好，⚠️ 基本/实验性支持，❌ 不支持
 
 ## 示例
 
@@ -331,7 +340,20 @@ async for chunk in data_stream:
 
 ## 贡献
 
-欢迎贡献！请随时提交 Pull Request。
+欢迎贡献！本项目仍处于早期开发阶段，有许多方面可以改进：
+
+- 更好的错误处理和边缘情况覆盖
+- 更全面的测试
+- 性能优化
+- 增强协议兼容性
+- 文档改进
+- 实际使用案例示例
+
+请随时提交 Pull Request 或开启 issue 讨论改进建议。
+
+## 免责声明
+
+本库按现状提供，可能无法覆盖所有使用场景或边缘情况。虽然我们努力与 AI SDK 协议保持兼容，但可能存在差异或缺失功能。建议用户在特定环境中进行充分测试，并将改进贡献回项目。
 
 ## 许可证
 
@@ -340,11 +362,11 @@ async for chunk in data_stream:
 ## 更新日志
 
 ### v0.0.1a1
-- 初始版本
-- 支持 AI SDK v4 和 v5 协议
-- 核心适配器功能
-- FastAPI 集成
-- 手动事件发射
-- 工具调用支持
-- 丰富内容类型
-- 使用跟踪
+- 初始 alpha 版本
+- 基本支持 AI SDK v4 和 v5 协议
+- 核心适配器功能（实验性）
+- FastAPI 集成（基本）
+- 手动事件发射功能
+- 有限的工具调用支持
+- 基本内容类型处理
+- 简单使用跟踪
