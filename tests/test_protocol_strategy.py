@@ -51,7 +51,8 @@ class TestAISDKv4Strategy:
         
         result = strategy.format_chunk(chunk)
         assert isinstance(result, str)
-        assert "test-message-id" in result
+        # v4 protocol: start events should return empty string to avoid duplicate f events
+        assert result == ""
 
     def test_format_chunk_text_delta(self):
         """Test formatting text delta chunk in v4 protocol."""
@@ -78,8 +79,8 @@ class TestAISDKv4Strategy:
         
         result = strategy.format_chunk(chunk)
         assert isinstance(result, str)
-        assert "tool-123" in result
-        assert "search_tool" in result
+        # v4 protocol: tool-input-start should return empty string to avoid duplicate Protocol 9 events
+        assert result == ""
 
     def test_format_chunk_tool_output_available(self):
         """Test formatting tool output available chunk in v4 protocol."""
