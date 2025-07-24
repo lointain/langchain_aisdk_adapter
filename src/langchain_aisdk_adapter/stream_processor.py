@@ -29,11 +29,13 @@ class StreamProcessor:
         self,
         message_id: str,
         auto_events: bool = True,
-        callbacks: Optional[BaseAICallbackHandler] = None
+        callbacks: Optional[BaseAICallbackHandler] = None,
+        protocol_version: str = "v4"
     ):
         self.message_id = message_id
         self.auto_events = auto_events
         self.callbacks = callbacks
+        self.protocol_version = protocol_version
         self.message_builder = MessageBuilder(message_id)
         self._lock = asyncio.Lock()
         self._current_text_id: Optional[str] = None
@@ -240,7 +242,7 @@ class StreamProcessor:
         """Handle chat model end event."""
         # End text if it was started
         if self.has_text_started:
-            yield ProtocolGenerator.create_text_end(self.text_id, self._accumulated_text)
+            yield ProtocolGenerator.create_text_end(self.text_id, self._accumulated_text, self.protocol_version)
             self.has_text_started = False
         
         # Mark that LLM generation is complete
@@ -450,11 +452,11 @@ class StreamProcessor:
         
         # Start text if not already started
         if not self.has_text_started:
-            yield ProtocolGenerator.create_text_start(self.text_id)
+            yield ProtocolGenerator.create_text_start(self.text_id, self.protocol_version)
             self.has_text_started = True
         
         # Send text delta
-        yield ProtocolGenerator.create_text_delta(self.text_id, text)
+        yield ProtocolGenerator.create_text_delta(self.text_id, text, self.protocol_version)
     
     def _extract_text_from_chunk(self, chunk: LangChainAIMessageChunk) -> str:
         """Extract text content from LangChain AI message chunk."""

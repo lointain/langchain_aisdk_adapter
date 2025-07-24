@@ -7,6 +7,9 @@ from typing import AsyncGenerator, Dict, Any, Optional, List
 
 from fastapi.responses import StreamingResponse
 
+from .protocol_strategy import ProtocolConfig
+from .text_processing_adapter import TextProcessingAdapter
+
 from .models import (
     UIMessageChunk,
     UIMessageChunkFile,
@@ -51,7 +54,9 @@ class DataStreamWithEmitters:
         message_id: str,
         auto_close: bool = True,
         message_builder: Optional[MessageBuilder] = None,
-        callbacks: Optional[BaseAICallbackHandler] = None
+        callbacks: Optional[BaseAICallbackHandler] = None,
+        protocol_version: str = "v4",
+        output_format: str = "chunks"  # "chunks" or "protocol"
     ):
         self._stream_generator = stream_generator
         self._message_id = message_id
@@ -61,6 +66,15 @@ class DataStreamWithEmitters:
         self._auto_close = auto_close
         self._message_builder = message_builder
         self._callbacks = callbacks
+        self._protocol_version = protocol_version
+        self._output_format = output_format
+        
+        # Initialize protocol components if protocol output is enabled
+        if self._output_format == "protocol":
+            from .protocol_strategy import ProtocolConfig
+            from .text_processing_adapter import TextProcessingAdapter
+            self._protocol_config = ProtocolConfig(protocol_version)
+            self._text_adapter = TextProcessingAdapter(protocol_version)
     
     async def emit_file(
         self, 
@@ -154,7 +168,8 @@ class DataStreamWithEmitters:
     ) -> None:
         """Emit a text-start chunk using unified protocol generator."""
         chunk = ProtocolGenerator.create_text_start(
-            text_id or str(uuid.uuid4())
+            text_id or str(uuid.uuid4()),
+            self._protocol_version
         )
         await self._emit_manual_chunk(chunk)
     
@@ -167,7 +182,8 @@ class DataStreamWithEmitters:
         """Emit a text-delta chunk using unified protocol generator."""
         chunk = ProtocolGenerator.create_text_delta(
             text_id or str(uuid.uuid4()),
-            delta
+            delta,
+            self._protocol_version
         )
         await self._emit_manual_chunk(chunk)
     
@@ -179,7 +195,9 @@ class DataStreamWithEmitters:
     ) -> None:
         """Emit a text-end chunk using unified protocol generator."""
         chunk = ProtocolGenerator.create_text_end(
-            text_id or str(uuid.uuid4())
+            text_id or str(uuid.uuid4()),
+            text,
+            self._protocol_version
         )
         await self._emit_manual_chunk(chunk)
     
@@ -495,10 +513,20 @@ class DataStreamWithEmitters:
                                         parts_dicts.append(part)
                                 chunk_with_parts['parts'] = parts_dicts
                             
-                            yield chunk_with_parts
+                            final_chunk = chunk_with_parts
                         else:
                             # For auto chunks, just yield them as-is since they're already processed
-                            yield clean_chunk
+                            final_chunk = clean_chunk
+                        
+                        # Output chunk based on format preference
+                        if self._output_format == "protocol":
+                            # Format chunk for protocol output
+                            formatted_text = self._format_chunk_for_protocol(final_chunk)
+                            if formatted_text:
+                                yield formatted_text
+                        else:
+                            # Output raw chunk
+                            yield final_chunk
                         
                 except asyncio.TimeoutError:
                     # Check if both tasks are done
@@ -506,6 +534,12 @@ class DataStreamWithEmitters:
                         break
                     continue
         finally:
+            # Send termination marker for protocol output
+            if self._output_format == "protocol":
+                termination_text = self._send_termination_marker()
+                if termination_text:
+                    yield termination_text
+            
             # Clean up tasks
             if not auto_task.done():
                 auto_task.cancel()
@@ -518,6 +552,47 @@ class DataStreamWithEmitters:
             except Exception:
                 pass
     
+    def _format_chunk_for_protocol(self, chunk: UIMessageChunk) -> Optional[str]:
+        """Format a chunk for protocol output."""
+        if self._output_format != "protocol":
+            return None
+            
+        # Handle text sequence management for different protocols
+        chunk_type = chunk.get("type") if isinstance(chunk, dict) else getattr(chunk, "type", None)
+        
+        # Check if we need to finish current text sequence
+        if (self._text_adapter.is_text_active() and 
+            chunk_type not in ["text-delta", "text-start", "text-end"]):
+            # Finish current text sequence before processing non-text chunk
+            for finish_chunk in self._text_adapter.finish_text_sequence():
+                formatted_chunk = self._protocol_config.strategy.format_chunk(finish_chunk)
+                if formatted_chunk:
+                    return formatted_chunk
+        
+        # Format the chunk using protocol strategy
+        return self._protocol_config.strategy.format_chunk(chunk)
+    
+    def _send_termination_marker(self) -> Optional[str]:
+        """Send protocol-specific termination marker."""
+        if self._output_format != "protocol":
+            return None
+            
+        # Finish any remaining text sequence
+        if self._text_adapter.is_text_active():
+            for finish_chunk in self._text_adapter.finish_text_sequence():
+                formatted_chunk = self._protocol_config.strategy.format_chunk(finish_chunk)
+                if formatted_chunk:
+                    return formatted_chunk
+        
+        # Send protocol-specific termination marker
+        return self._protocol_config.strategy.get_termination_marker()
+    
+    def _get_termination_text(self) -> str:
+        """Get termination text for protocol output."""
+        if self._output_format != "protocol":
+            return ""
+        return self._protocol_config.strategy.get_termination_marker()
+
     async def close(self):
         """Close the stream."""
         self._closed = True
@@ -534,18 +609,21 @@ class DataStreamWithEmitters:
                 pass
         
         await self._manual_queue.put(None)
+    
+
 
 
 class DataStreamResponse(StreamingResponse):
     """FastAPI StreamingResponse wrapper for AI SDK Data Stream Protocol.
     
     This class wraps an AI SDK data stream as a FastAPI StreamingResponse,
-    automatically formatting UIMessageChunk objects for AI SDK v3/v4 compatibility.
+    automatically formatting UIMessageChunk objects for AI SDK v4/v5 compatibility.
     """
     
     def __init__(
         self,
         stream: AsyncGenerator[UIMessageChunk, None],
+        protocol_version: str = "v4",  # Default to v4
         headers: Optional[Dict[str, str]] = None,
         status: int = 200
     ):
@@ -553,48 +631,61 @@ class DataStreamResponse(StreamingResponse):
         
         Args:
             stream: The data stream generator
+            protocol_version: Protocol version ("v4" or "v5")
             headers: Optional HTTP headers
             status: HTTP status code
         """
-        # Convert UIMessageChunk stream to text stream
-        text_stream = self._convert_to_text_stream(stream)
+        # Create protocol configuration
+        self.protocol_config = ProtocolConfig(protocol_version)
         
-        # Set default headers for AI SDK v5 SSE format
-        default_headers = {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "x-vercel-ai-ui-message-stream": "v1",  # Required by AI SDK v5
-        }
+        # Convert UIMessageChunk stream to protocol-specific text stream
+        text_stream = self._convert_to_protocol_stream(stream)
+        
+        # Get protocol-specific headers
+        protocol_headers = self.protocol_config.strategy.get_headers()
         if headers:
-            default_headers.update(headers)
+            protocol_headers.update(headers)
         
         super().__init__(
             content=text_stream,
-            headers=default_headers,
+            headers=protocol_headers,
             status_code=status
         )
     
-    async def _convert_to_text_stream(
+    async def _convert_to_protocol_stream(
         self, 
         data_stream: AsyncGenerator[UIMessageChunk, None]
     ) -> AsyncGenerator[str, None]:
-        """Convert UIMessageChunk to AI SDK v5 SSE format."""
+        """Convert UIMessageChunk stream to protocol-specific format."""
+        text_adapter = TextProcessingAdapter(self.protocol_config.version)
+        
         async for chunk in data_stream:
-            # Convert chunk to JSON string
-            if hasattr(chunk, 'dict'):
-                chunk_dict = chunk.dict()
-            elif isinstance(chunk, dict):
-                chunk_dict = chunk
-            else:
-                chunk_dict = {"type": "error", "errorText": "Invalid chunk format"}
+            # Handle text sequence management for different protocols
+            chunk_type = chunk.get("type") if isinstance(chunk, dict) else getattr(chunk, "type", None)
             
-            # Format as AI SDK v5 SSE format: data: CONTENT_JSON\n\n
-            json_str = json.dumps(chunk_dict, ensure_ascii=False)
-            yield f"data: {json_str}\n\n"
-         
-        # Send SSE termination marker
-        yield "data: [DONE]\n\n"
+            # Check if we need to finish current text sequence
+            if (text_adapter.is_text_active() and 
+                chunk_type not in ["text-delta", "text-start", "text-end"]):
+                # Finish current text sequence before processing non-text chunk
+                for finish_chunk in text_adapter.finish_text_sequence():
+                    formatted_chunk = self.protocol_config.strategy.format_chunk(finish_chunk)
+                    if formatted_chunk:
+                        yield formatted_chunk
+            
+            # Format the chunk using protocol strategy
+            formatted_chunk = self.protocol_config.strategy.format_chunk(chunk)
+            if formatted_chunk:
+                yield formatted_chunk
+        
+        # Finish any remaining text sequence
+        if text_adapter.is_text_active():
+            for finish_chunk in text_adapter.finish_text_sequence():
+                formatted_chunk = self.protocol_config.strategy.format_chunk(finish_chunk)
+                if formatted_chunk:
+                    yield formatted_chunk
+        
+        # Send protocol-specific termination marker
+        yield self.protocol_config.strategy.get_termination_marker()
     
 
 

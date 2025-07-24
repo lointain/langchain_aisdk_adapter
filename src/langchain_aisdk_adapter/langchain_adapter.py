@@ -8,18 +8,26 @@ from .stream_processor import StreamProcessor
 from .data_stream import DataStreamWithEmitters, DataStreamResponse, DataStreamWriter
 from .callbacks import BaseAICallbackHandler
 
+try:
+    from fastapi.responses import StreamingResponse
+except ImportError:
+    # Fallback for when FastAPI is not available
+    StreamingResponse = None
+
 
 class AdapterOptions(TypedDict, total=False):
     """Configuration options for LangChain to AI SDK adapter.
     
     Attributes:
         protocol_version: AI SDK protocol version ('v4' or 'v5'), defaults to 'v4'
+        output_format: Output format ('chunks' or 'protocol'), defaults to 'chunks'
         auto_events: Whether to automatically emit start/finish events, defaults to True
         auto_close: Whether to automatically close the stream, defaults to True
         emit_start: Whether to emit start events, defaults to True
         emit_finish: Whether to emit finish events, defaults to True
     """
     protocol_version: Literal['v4', 'v5']
+    output_format: Literal['chunks', 'protocol']
     auto_events: bool
     auto_close: bool
     emit_start: bool
@@ -30,14 +38,14 @@ class LangChainAdapter:
     """LangChain to AI SDK adapter providing three core methods."""
     
     @staticmethod
-    async def to_data_stream_response(
+    def to_data_stream_response(
         stream: AsyncIterable[LangChainStreamInput],
         callbacks: Optional[BaseAICallbackHandler] = None,
         message_id: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
         status: int = 200,
         options: Optional[AdapterOptions] = None
-    ) -> DataStreamResponse:
+    ) -> StreamingResponse:
         """Convert LangChain stream to FastAPI StreamingResponse.
         
         Args:
@@ -48,25 +56,59 @@ class LangChainAdapter:
             status: HTTP status code
             options: Control options including:
                 - protocol_version: 'v4' (default) or 'v5'
+                - output_format: 'protocol' (default) or 'chunks'
                 - auto_events: Whether to emit start/finish events (default: True)
                 - auto_close: Whether to auto-close stream (default: True)
                 - emit_start: Whether to emit start events (default: True)
                 - emit_finish: Whether to emit finish events (default: True)
         
         Returns:
-            DataStreamResponse: StreamingResponse-compatible object
+            StreamingResponse: FastAPI StreamingResponse with protocol format
         """
-        # Create data stream
+        # Parse options
+        opts = options or {}
+        protocol_version = opts.get("protocol_version", "v4")  # Default to v4
+        output_format = opts.get("output_format", "protocol")  # Default to protocol for response
+        
+        # Create options with protocol output format for response
+        response_options = dict(opts)
+        response_options["output_format"] = output_format
+        
+        # Get DataStreamWithEmitters
         data_stream = LangChainAdapter.to_data_stream(
-            stream, callbacks, message_id, options
+            stream=stream,
+            callbacks=callbacks,
+            message_id=message_id,
+            options=response_options
         )
         
-        # Convert to response
-        return DataStreamResponse(
-            data_stream,
-            headers=headers or {"Content-Type": "text/plain; charset=utf-8"},
-            status=status
-        )
+        # If output_format is already protocol, use DataStreamWithEmitters directly
+        if output_format == "protocol":
+            # Get protocol-specific headers
+            from .protocol_strategy import ProtocolConfig
+            protocol_config = ProtocolConfig(protocol_version)
+            protocol_headers = protocol_config.strategy.get_headers()
+            if headers:
+                protocol_headers.update(headers)
+            
+            from fastapi.responses import StreamingResponse
+            return StreamingResponse(
+                content=data_stream,
+                headers=protocol_headers,
+                status_code=status
+            )
+        else:
+            # Use DataStreamResponse to handle protocol conversion
+            from .data_stream import DataStreamResponse
+            
+            return DataStreamResponse(
+                stream=data_stream,
+                protocol_version=protocol_version,
+                headers=headers,
+                status=status
+            )
+    
+
     
     @staticmethod
     def to_data_stream(
@@ -83,10 +125,12 @@ class LangChainAdapter:
             message_id: Optional message ID for tracking
             options: Control options including:
                 - protocol_version: 'v4' (default) or 'v5'
+                - output_format: 'chunks' (default) or 'protocol'
                 - auto_events: Whether to emit start/finish events (default: True)
                 - auto_close: Whether to auto-close stream (default: True)
                 - emit_start: Whether to emit start events (default: True)
                 - emit_finish: Whether to emit finish events (default: True)
+
         
         Returns:
             DataStreamWithEmitters: Stream object with emit methods
@@ -94,15 +138,18 @@ class LangChainAdapter:
         # Parse options
         opts = options or {}
         protocol_version = opts.get("protocol_version", "v4")  # Default to v4
+        output_format = opts.get("output_format", "protocol")  # Default to protocol format
         auto_events = opts.get("auto_events", True)
         auto_close = opts.get("auto_close", True)
+
         message_id = message_id or str(uuid.uuid4())
         
-        # Create processor
+        # Create stream processor
         processor = StreamProcessor(
             message_id=message_id,
             auto_events=auto_events,
-            callbacks=callbacks
+            callbacks=callbacks,
+            protocol_version=protocol_version
         )
         
         # Create the async generator
@@ -116,7 +163,9 @@ class LangChainAdapter:
             message_id, 
             auto_close, 
             processor.message_builder,
-            callbacks
+            callbacks,
+            protocol_version,
+            output_format
         )
     
     @staticmethod
@@ -136,6 +185,7 @@ class LangChainAdapter:
             message_id: Optional message ID for tracking
             options: Control options including:
                 - protocol_version: 'v4' (default) or 'v5'
+                - output_format: 'chunks' (default) or 'protocol'
                 - auto_events: Whether to emit start/finish events (default: True)
                 - auto_close: Whether to auto-close stream (default: True)
                 - emit_start: Whether to emit start events (default: True)
@@ -167,14 +217,14 @@ async def to_data_stream(
         yield chunk
 
 
-async def to_data_stream_response(
+def to_data_stream_response(
     stream: AsyncIterable[LangChainStreamInput],
     callbacks: Optional[BaseAICallbackHandler] = None,
     message_id: Optional[str] = None,
     options: Optional[AdapterOptions] = None,
     headers: Optional[Dict[str, str]] = None,
     status: int = 200
-) -> DataStreamResponse:
+) -> StreamingResponse:
     """Convert LangChain output streams to AI SDK Data Stream Response.
     
     This function creates a response wrapper around the data stream,
@@ -189,21 +239,20 @@ async def to_data_stream_response(
         status: HTTP status code
         
     Returns:
-        DataStreamResponse object containing the converted stream
+        StreamingResponse object containing the converted stream
         
     Example:
         ```python
         from langchain_aisdk_adapter import to_data_stream_response
         
         # Convert LangChain stream to response format
-        response = await to_data_stream_response(langchain_stream)
+        response = to_data_stream_response(langchain_stream)
         
         # Use in web framework (e.g., FastAPI)
-        async for chunk in response:
-            yield chunk
+        return response
         ```
     """
-    return await LangChainAdapter.to_data_stream_response(
+    return LangChainAdapter.to_data_stream_response(
         stream, callbacks, message_id, headers, status, options
     )
 

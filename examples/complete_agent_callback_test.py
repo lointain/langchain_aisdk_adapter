@@ -160,7 +160,7 @@ Thought:{agent_scratchpad}"""
             agent_stream,
             callbacks=callbacks,
             message_id="test-message-001",
-            options={"auto_events": True}
+            options={"auto_events": True, "protocol_version": "v5"}
         )
         
         # Test various emit methods directly on the stream with proper sequence

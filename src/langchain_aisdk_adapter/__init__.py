@@ -9,6 +9,8 @@ from .message_builder import MessageBuilder
 from .protocol_generator import ProtocolGenerator
 from .stream_processor import StreamProcessor
 from .data_stream import DataStreamWithEmitters, DataStreamResponse, DataStreamWriter
+from .protocol_strategy import ProtocolStrategy, AISDKv4Strategy, AISDKv5Strategy, ProtocolConfig
+from .text_processing_adapter import TextProcessingAdapter
 from .langchain_adapter import (
     LangChainAdapter,
     AdapterOptions,
@@ -78,6 +80,13 @@ __all__ = [
     "MessageBuilder",
     "ProtocolGenerator",
     "StreamProcessor",
+    
+    # Protocol strategy classes
+    "ProtocolStrategy",
+    "AISDKv4Strategy",
+    "AISDKv5Strategy",
+    "ProtocolConfig",
+    "TextProcessingAdapter",
     
     # Main adapter functions (AI SDK compatible)
     "to_data_stream",  # Legacy compatibility
