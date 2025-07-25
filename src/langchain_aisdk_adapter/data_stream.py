@@ -39,6 +39,7 @@ from .models import (
 from .message_builder import MessageBuilder
 from .protocol_generator import ProtocolGenerator
 from .callbacks import BaseAICallbackHandler
+from .context import DataStreamContext
 
 
 class DataStreamWithEmitters:
@@ -70,6 +71,9 @@ class DataStreamWithEmitters:
         self._protocol_version = protocol_version
         self._output_format = output_format
         self._stream_processor = stream_processor
+        
+        # Note: Context functionality is available through DataStreamContext.get_current()
+        # when auto_context is enabled in LangChainAdapter
         
         # Initialize protocol components if protocol output is enabled
         if self._output_format == "protocol":
@@ -240,12 +244,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a tool-input-available chunk."""
-        chunk = UIMessageChunkToolInputAvailable(
-            type="tool-input-available",
-            toolCallId=tool_call_id,
-            toolName=tool_name,
-            input=input_data
-        )
+        chunk = await self._context.emit_tool_input_available(tool_call_id, tool_name, input_data, message_id)
         await self._emit_manual_chunk(chunk)
     
     async def emit_tool_output_available(
@@ -255,11 +254,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a tool-output-available chunk."""
-        chunk = UIMessageChunkToolOutputAvailable(
-            type="tool-output-available",
-            toolCallId=tool_call_id,
-            output=output
-        )
+        chunk = await self._context.emit_tool_output_available(tool_call_id, output, message_id)
         await self._emit_manual_chunk(chunk)
     
     async def emit_tool_output_error(
@@ -269,11 +264,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a tool-output-error chunk."""
-        chunk = UIMessageChunkToolOutputError(
-            type="tool-output-error",
-            toolCallId=tool_call_id,
-            errorText=error_text
-        )
+        chunk = await self._context.emit_tool_output_error(tool_call_id, error_text, message_id)
         await self._emit_manual_chunk(chunk)
     
     # === Reasoning-related emit methods ===
@@ -283,10 +274,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a reasoning-start chunk."""
-        chunk = UIMessageChunkReasoningStart(
-            type="reasoning-start",
-            id=reasoning_id or str(uuid.uuid4())
-        )
+        chunk = await self._context.emit_reasoning_start(reasoning_id, message_id)
         await self._emit_manual_chunk(chunk)
     
     async def emit_reasoning_delta(
@@ -296,11 +284,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a reasoning-delta chunk."""
-        chunk = UIMessageChunkReasoningDelta(
-            type="reasoning-delta",
-            id=reasoning_id or str(uuid.uuid4()),
-            delta=delta
-        )
+        chunk = await self._context.emit_reasoning_delta(delta, reasoning_id, message_id)
         await self._emit_manual_chunk(chunk)
     
     async def emit_reasoning_end(
@@ -309,10 +293,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a reasoning-end chunk."""
-        chunk = UIMessageChunkReasoningEnd(
-            type="reasoning-end",
-            id=reasoning_id or str(uuid.uuid4())
-        )
+        chunk = await self._context.emit_reasoning_end(reasoning_id, message_id)
         await self._emit_manual_chunk(chunk)
     
     async def emit_reasoning_part_finish(
@@ -321,10 +302,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a reasoning-part-finish chunk."""
-        chunk = UIMessageChunkReasoningPartFinish(
-            type="reasoning-part-finish",
-            id=reasoning_id or str(uuid.uuid4())
-        )
+        chunk = await self._context.emit_reasoning_part_finish(reasoning_id, message_id)
         await self._emit_manual_chunk(chunk)
     
     # === Step-related emit methods ===
@@ -335,11 +313,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a start-step chunk."""
-        chunk = UIMessageChunkStartStep(
-            type="start-step",
-            stepType=step_type,
-            stepId=step_id or str(uuid.uuid4())
-        )
+        chunk = await self._context.emit_start_step(step_type, step_id, message_id)
         await self._emit_manual_chunk(chunk)
     
     async def emit_finish_step(
@@ -349,11 +323,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a finish-step chunk."""
-        chunk = UIMessageChunkFinishStep(
-            type="finish-step",
-            stepType=step_type,
-            stepId=step_id or str(uuid.uuid4())
-        )
+        chunk = await self._context.emit_finish_step(step_type, step_id, message_id)
         await self._emit_manual_chunk(chunk)
     
     # === Message lifecycle emit methods ===
@@ -362,10 +332,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a start chunk."""
-        chunk = UIMessageChunkStart(
-            type="start",
-            messageId=message_id or self._message_id
-        )
+        chunk = await self._context.emit_start(message_id)
         await self._emit_manual_chunk(chunk)
     
     async def emit_finish(
@@ -373,10 +340,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a finish chunk."""
-        chunk = UIMessageChunkFinish(
-            type="finish",
-            messageId=message_id or self._message_id
-        )
+        chunk = await self._context.emit_finish(message_id)
         await self._emit_manual_chunk(chunk)
     
     async def emit_message_start(
@@ -385,11 +349,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a message-start chunk."""
-        chunk = UIMessageChunkMessageStart(
-            type="message-start",
-            messageId=message_id or self._message_id,
-            role=role
-        )
+        chunk = await self._context.emit_message_start(role, message_id)
         await self._emit_manual_chunk(chunk)
     
     async def emit_message_end(
@@ -397,10 +357,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a message-end chunk."""
-        chunk = UIMessageChunkMessageEnd(
-            type="message-end",
-            messageId=message_id or self._message_id
-        )
+        chunk = await self._context.emit_message_end(message_id)
         await self._emit_manual_chunk(chunk)
     
     async def emit_abort(
@@ -409,10 +366,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit an abort chunk."""
-        chunk = UIMessageChunkAbort(
-            type="abort",
-            reason=reason
-        )
+        chunk = await self._context.emit_abort(reason, message_id)
         await self._emit_manual_chunk(chunk)
     
     async def emit_message_metadata(
@@ -421,12 +375,18 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a message-metadata chunk."""
-        chunk = UIMessageChunkMessageMetadata(
-            type="message-metadata",
-            messageId=message_id or self._message_id,
-            metadata=metadata
-        )
+        chunk = await self._context.emit_message_metadata(metadata, message_id)
         await self._emit_manual_chunk(chunk)
+    
+    async def emit_raw_data(self, data: Dict[str, Any]) -> None:
+        """Emit raw data directly to the stream.
+        
+        Args:
+            data: Raw data dictionary to emit
+        """
+        # Convert raw data to a generic chunk format
+        # This is used by DataStreamContext for direct data emission
+        await self._manual_queue.put(data)
     
     async def _emit_manual_chunk(self, chunk: UIMessageChunk) -> None:
         """Emit a manual chunk to the queue."""

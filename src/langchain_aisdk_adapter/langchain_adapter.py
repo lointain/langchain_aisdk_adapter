@@ -1,5 +1,6 @@
 """LangChain to AI SDK adapter providing core conversion methods."""
 
+import asyncio
 import uuid
 from typing import AsyncIterable, AsyncGenerator, Optional, Dict, Any, Literal, TypedDict
 
@@ -7,6 +8,8 @@ from .models import LangChainStreamInput, UIMessageChunk
 from .stream_processor import StreamProcessor
 from .data_stream import DataStreamWithEmitters, DataStreamResponse, DataStreamWriter
 from .callbacks import BaseAICallbackHandler
+from .context import DataStreamContext
+from .lifecycle import ContextLifecycleManager
 
 try:
     from fastapi.responses import StreamingResponse
@@ -24,12 +27,14 @@ class AdapterOptions(TypedDict, total=False):
         auto_close: Whether to automatically close the stream, defaults to True
         emit_start: Whether to emit start events, defaults to True
         emit_finish: Whether to emit finish events, defaults to True
+        auto_context: Whether to automatically set up context, defaults to True
     """
     protocol_version: Literal['v4', 'v5']
     auto_events: bool
     auto_close: bool
     emit_start: bool
     emit_finish: bool
+    auto_context: bool
 
 
 class LangChainAdapter:
@@ -58,6 +63,7 @@ class LangChainAdapter:
                 - auto_close: Whether to auto-close stream (default: True)
                 - emit_start: Whether to emit start events (default: True)
                 - emit_finish: Whether to emit finish events (default: True)
+                - auto_context: Whether to automatically set up context (default: True)
         
         Returns:
             StreamingResponse: FastAPI StreamingResponse with protocol format
@@ -65,14 +71,40 @@ class LangChainAdapter:
         # Parse options
         opts = options or {}
         protocol_version = opts.get("protocol_version", "v4")  # Default to v4
+        auto_context = opts.get("auto_context", True)
         
-        # Get DataStreamWithEmitters with protocol format
-        data_stream = LangChainAdapter.to_data_stream(
-            stream=stream,
-            callbacks=callbacks,
+        # Create stream processor
+        message_id = message_id or str(uuid.uuid4())
+        processor = StreamProcessor(
             message_id=message_id,
-            options=opts
+            auto_events=opts.get("auto_events", True),
+            callbacks=callbacks,
+            protocol_version=protocol_version
         )
+        
+        # Create the async generator with automatic context management
+        async def stream_generator():
+            if auto_context:
+                # Create a temporary DataStreamWithEmitters for context
+                temp_stream = DataStreamWithEmitters(
+                    processor.process_stream(stream),
+                    message_id,
+                    opts.get("auto_close", True),
+                    processor.message_builder,
+                    callbacks,
+                    protocol_version,
+                    "protocol",
+                    processor
+                )
+                
+                # Set up context and process with lifecycle management
+                async with ContextLifecycleManager.managed_context(temp_stream):
+                    async for chunk in processor.process_stream(stream):
+                        yield chunk
+            else:
+                # Process without context management
+                async for chunk in processor.process_stream(stream):
+                    yield chunk
         
         # Get protocol-specific headers
         from .protocol_strategy import ProtocolConfig
@@ -83,7 +115,7 @@ class LangChainAdapter:
         
         from fastapi.responses import StreamingResponse
         return StreamingResponse(
-            content=data_stream,
+            content=stream_generator(),
             headers=protocol_headers,
             status_code=status
         )
@@ -109,6 +141,7 @@ class LangChainAdapter:
                 - auto_close: Whether to auto-close stream (default: True)
                 - emit_start: Whether to emit start events (default: True)
                 - emit_finish: Whether to emit finish events (default: True)
+                - auto_context: Whether to automatically set up context (default: True)
 
         
         Returns:
@@ -119,6 +152,7 @@ class LangChainAdapter:
         protocol_version = opts.get("protocol_version", "v4")  # Default to v4
         auto_events = opts.get("auto_events", True)
         auto_close = opts.get("auto_close", True)
+        auto_context = opts.get("auto_context", True)
 
         message_id = message_id or str(uuid.uuid4())
         
@@ -130,13 +164,13 @@ class LangChainAdapter:
             protocol_version=protocol_version
         )
         
-        # Create the async generator
+        # Create the async generator with automatic context management
         async def stream_generator():
             async for chunk in processor.process_stream(stream):
                 yield chunk
         
-        # Return wrapped stream with emit methods, passing the message builder and callbacks
-        return DataStreamWithEmitters(
+        # Create wrapped stream with emit methods
+        data_stream = DataStreamWithEmitters(
             stream_generator(), 
             message_id, 
             auto_close, 
@@ -146,6 +180,44 @@ class LangChainAdapter:
             "protocol",  # Always use protocol format
             processor  # Pass processor instance for usage tracking
         )
+        
+        # Automatically set up context if enabled
+        if auto_context:
+            DataStreamContext.set_current_stream(data_stream)
+            # Note: Lifecycle management is handled by the stream itself
+            # Background processing is not needed for basic functionality
+        
+        return data_stream
+    
+    @staticmethod
+    async def _process_stream_with_lifecycle(
+        stream: AsyncIterable[LangChainStreamInput],
+        data_stream: DataStreamWithEmitters,
+        processor: StreamProcessor
+    ) -> None:
+        """Process stream with automatic lifecycle management.
+        
+        Args:
+            stream: Original LangChain stream
+            data_stream: DataStreamWithEmitters instance
+            processor: StreamProcessor instance
+        """
+        try:
+            # Use context lifecycle manager
+            async with ContextLifecycleManager.managed_context(data_stream):
+                # Process the stream
+                async for chunk in processor.process_stream(stream):
+                    # Stream processing is handled by the DataStreamWithEmitters
+                    pass
+        except Exception as e:
+            # Emit error if context is available
+            context = DataStreamContext.get_current_stream()
+            if context:
+                await context.emit_error(str(e))
+            raise
+        finally:
+            # Clean up context
+            DataStreamContext.clear_current_stream()
     
     @staticmethod
     async def merge_into_data_stream(
@@ -181,94 +253,3 @@ class LangChainAdapter:
         # Write to existing stream
         async for chunk in data_stream:
             await data_stream_writer.write(chunk)
-
-
-# Legacy functions for backward compatibility
-async def to_data_stream(
-    stream: AsyncIterable[LangChainStreamInput],
-    callbacks: Optional[BaseAICallbackHandler] = None,
-    message_id: Optional[str] = None,
-    options: Optional[AdapterOptions] = None
-) -> AsyncGenerator[UIMessageChunk, None]:
-    """Legacy function - use LangChainAdapter.to_data_stream instead."""
-    data_stream = LangChainAdapter.to_data_stream(stream, callbacks, message_id, options)
-    async for chunk in data_stream:
-        yield chunk
-
-
-def to_data_stream_response(
-    stream: AsyncIterable[LangChainStreamInput],
-    callbacks: Optional[BaseAICallbackHandler] = None,
-    message_id: Optional[str] = None,
-    options: Optional[AdapterOptions] = None,
-    headers: Optional[Dict[str, str]] = None,
-    status: int = 200
-) -> StreamingResponse:
-    """Convert LangChain output streams to AI SDK Data Stream Response.
-    
-    This function creates a response wrapper around the data stream,
-    similar to the Node.js AI SDK's toDataStreamResponse function.
-    
-    Args:
-        stream: Input stream from LangChain
-        callbacks: Optional callbacks (BaseAICallbackHandler)
-        message_id: Optional message ID (auto-generated if not provided)
-        options: Control options including protocol_version ('v4'/'v5'), auto_events, auto_close, etc.
-        headers: Optional HTTP headers
-        status: HTTP status code
-        
-    Returns:
-        StreamingResponse object containing the converted stream
-        
-    Example:
-        ```python
-        from langchain_aisdk_adapter import to_data_stream_response
-        
-        # Convert LangChain stream to response format
-        response = to_data_stream_response(langchain_stream)
-        
-        # Use in web framework (e.g., FastAPI)
-        return response
-        ```
-    """
-    return LangChainAdapter.to_data_stream_response(
-        stream, callbacks, message_id, headers, status, options
-    )
-
-
-async def merge_into_data_stream(
-    stream: AsyncIterable[LangChainStreamInput],
-    data_stream_writer: DataStreamWriter,
-    callbacks: Optional[BaseAICallbackHandler] = None,
-    message_id: Optional[str] = None,
-    options: Optional[AdapterOptions] = None
-) -> None:
-    """Merge LangChain output streams into an existing data stream.
-    
-    This function merges a LangChain stream into an existing data stream writer,
-    similar to the Node.js AI SDK's mergeIntoDataStream function.
-    
-    Args:
-        stream: Input stream from LangChain
-        data_stream_writer: Target data stream writer
-        callbacks: Optional callbacks (BaseAICallbackHandler)
-        message_id: Optional message ID (auto-generated if not provided)
-        options: Control options including protocol_version ('v4'/'v5'), auto_events, auto_close, etc.
-        
-    Example:
-        ```python
-        from langchain_aisdk_adapter import merge_into_data_stream, DataStreamWriter
-        
-        # Create a data stream writer
-        writer = DataStreamWriter()
-        
-        # Merge LangChain stream into the writer
-        await merge_into_data_stream(langchain_stream, writer)
-        
-        # Get all chunks
-        chunks = writer.get_chunks()
-        ```
-    """
-    await LangChainAdapter.merge_into_data_stream(
-        stream, data_stream_writer, callbacks, message_id, options
-    )

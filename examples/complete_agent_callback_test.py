@@ -19,8 +19,7 @@ from langchain.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
 
-from langchain_aisdk_adapter import LangChainAdapter
-from langchain_aisdk_adapter.callbacks import BaseAICallbackHandler, Message
+from langchain_aisdk_adapter import LangChainAdapter,BaseAICallbackHandler, Message
 
 
 @tool

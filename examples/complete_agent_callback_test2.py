@@ -19,9 +19,15 @@ from langchain.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
 
-from langchain_aisdk_adapter import LangChainAdapter
-from langchain_aisdk_adapter.callbacks import BaseAICallbackHandler, Message
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("Warning: python-dotenv not installed. Please install it with: uv add python-dotenv")
+    print("Falling back to manual environment variable reading.")
 
+from langchain_aisdk_adapter import LangChainAdapter, DataStreamContext, BaseAICallbackHandler, Message
 
 @tool
 def get_weather(city: str) -> str:
@@ -163,82 +169,69 @@ Thought:{agent_scratchpad}"""
             options={"auto_events": False}
         )
         
-        # Test various emit methods directly on the stream with proper sequence
-        print("\nTesting manual emit methods with proper sequence:")
+        # Test various emit methods using DataStreamContext with proper sequence
+        print("\nTesting DataStreamContext emit methods with proper sequence:")
         
-        # 1. Start message
-        await ai_sdk_stream.emit_start()
-        print("✓ Emitted start")
+        # Test DataStreamContext emit methods (using await for async methods)
+        print("\nTesting DataStreamContext emit methods with proper sequence:")
         
-        # 2. Text sequence: start -> delta -> end
-        text_id = "text-001"
-        await ai_sdk_stream.emit_text_start(text_id=text_id)
-        print("✓ Emitted text-start")
-        
-        await ai_sdk_stream.emit_text_delta(delta="Hello ", text_id=text_id)
-        await ai_sdk_stream.emit_text_delta(delta="world!", text_id=text_id)
-        print("✓ Emitted text-delta chunks")
-        
-        await ai_sdk_stream.emit_text_end(text="Hello world!", text_id=text_id)
-        print("✓ Emitted text-end")
-        
-        # 3. Tool sequence: start -> delta -> available -> output
-        tool_call_id = "tool-001"
-        await ai_sdk_stream.emit_tool_input_start(tool_call_id=tool_call_id, tool_name="get_weather")
-        print("✓ Emitted tool-input-start")
-        
-        await ai_sdk_stream.emit_tool_input_delta(tool_call_id=tool_call_id, delta='{"city": "Beijing"}')
-        print("✓ Emitted tool-input-delta")
-        
-        await ai_sdk_stream.emit_tool_input_available(
-            tool_call_id=tool_call_id, 
-            tool_name="get_weather", 
-            input_data={"city": "Beijing"}
-        )
-        print("✓ Emitted tool-input-available")
-        
-        await ai_sdk_stream.emit_tool_output_available(
-            tool_call_id=tool_call_id, 
-            output="The weather in Beijing is sunny with 22°C temperature."
-        )
-        print("✓ Emitted tool-output-available")
-        
-        # 4. Step sequence
-        await ai_sdk_stream.emit_start_step(step_type="reasoning")
-        print("✓ Emitted start-step")
-        
-        await ai_sdk_stream.emit_finish_step(step_type="reasoning")
-        print("✓ Emitted finish-step")
-        
-        # 5. File attachments
-        await ai_sdk_stream.emit_file(url="report.pdf", mediaType="application/pdf")
-        print("✓ Emitted file: report.pdf")
-        
-        await ai_sdk_stream.emit_file(url="data.json", mediaType="application/json")
-        print("✓ Emitted file: data.json")
-        
-        # 6. Source documents
-        await ai_sdk_stream.emit_source_document(
-            source_id="doc-001",
-            media_type="text/plain",
-            title="Example Document",
-            filename="example.txt"
-        )
-        print("✓ Emitted source-document")
-        
-        # 7. Custom data
-        await ai_sdk_stream.emit_data(data={"key": "value", "number": 42}, data_type="data-custom")
-        print("✓ Emitted data chunk")
-        
-        # 8. Error handling
-        await ai_sdk_stream.emit_error(error_text="This is a test error message.")
-        print("✓ Emitted error")
-        
-        # 9. Finish message
-        await ai_sdk_stream.emit_finish()
-        print("✓ Emitted finish")
-        
-        print("All manual emit tests completed with proper sequence.\n")
+        # Test basic emit functionality
+        try:
+            # 1. Start message
+            await DataStreamContext.emit_start()
+            print("✓ Emitted start")
+            
+            # 2. Text sequence: start -> delta -> end
+            text_id = "text-001"
+            await DataStreamContext.emit_text_start(text_id=text_id)
+            print("✓ Emitted text-start")
+            
+            await DataStreamContext.emit_text_delta(delta="Hello ", text_id=text_id)
+            await DataStreamContext.emit_text_delta(delta="world!", text_id=text_id)
+            print("✓ Emitted text-delta chunks")
+            
+            await DataStreamContext.emit_text_end(text="Hello world!", text_id=text_id)
+            print("✓ Emitted text-end")
+            
+            # 3. Tool sequence: start -> delta -> available -> output
+            tool_call_id = "tool-001"
+            await DataStreamContext.emit_tool_input_start(tool_call_id=tool_call_id, tool_name="get_weather")
+            print("✓ Emitted tool-input-start")
+            
+            await DataStreamContext.emit_tool_input_delta(tool_call_id=tool_call_id, input_text_delta='{"city": "Beijing"}')
+            print("✓ Emitted tool-input-delta")
+            
+            # 4. File attachments
+            await DataStreamContext.emit_file(url="report.pdf", media_type="application/pdf")
+            print("✓ Emitted file: report.pdf")
+            
+            await DataStreamContext.emit_file(url="data.json", media_type="application/json")
+            print("✓ Emitted file: data.json")
+            
+            # 5. Source documents
+            await DataStreamContext.emit_source_document(
+                source_id="doc-001",
+                media_type="text/plain",
+                title="Example Document",
+                filename="example.txt"
+            )
+            print("✓ Emitted source-document")
+            
+            # 6. Custom data
+            await DataStreamContext.emit_data(data={"key": "value", "number": 42})
+            print("✓ Emitted data chunk")
+            
+            # 7. Error handling
+            await DataStreamContext.emit_error(error_text="This is a test error message.")
+            print("✓ Emitted error")
+            
+            # 8. Finish message
+            await DataStreamContext.emit_finish()
+            print("✓ Emitted finish")
+            
+            print("All DataStreamContext emit tests completed with proper sequence.\n")
+        except Exception as e:
+            print(f"DataStreamContext emit test failed: {e}\n")
         
         # Stream the response and show AI SDK protocols
         print("\nAI SDK Protocol Output:")

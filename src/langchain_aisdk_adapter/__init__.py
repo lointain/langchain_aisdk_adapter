@@ -13,12 +13,11 @@ from .protocol_strategy import ProtocolStrategy, AISDKv4Strategy, AISDKv5Strateg
 from .text_processing_adapter import TextProcessingAdapter
 from .langchain_adapter import (
     LangChainAdapter,
-    AdapterOptions,
-    to_data_stream,  # Legacy compatibility
-    to_data_stream_response,
-    merge_into_data_stream
+    AdapterOptions
 )
-from .manual_stream import ManualStreamController
+
+from .context import DataStreamContext
+from .lifecycle import ContextLifecycleManager
 from .callbacks import (
     BaseAICallbackHandler,
     Message,
@@ -88,10 +87,7 @@ __all__ = [
     "ProtocolConfig",
     "TextProcessingAdapter",
     
-    # Main adapter functions (AI SDK compatible)
-    "to_data_stream",  # Legacy compatibility
-    "to_data_stream_response", 
-    "merge_into_data_stream",
+
     
     # Response and Writer classes
     "DataStreamResponse",
@@ -99,7 +95,11 @@ __all__ = [
     "DataStreamWithEmitters",
     
     # Manual stream control
-    "ManualStreamController",
+
+    
+    # Context and lifecycle management
+    "DataStreamContext",
+    "ContextLifecycleManager",
     
     # Callback systems
     "BaseAICallbackHandler",

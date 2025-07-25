@@ -75,19 +75,24 @@ async def chat(request: dict):
     )
 ```
 
-### Manual Event Emission
+### Context-based Event Emission
 
 ```python
-from langchain_aisdk_adapter import LangChainAdapter
+from langchain_aisdk_adapter import LangChainAdapter, DataStreamContext
 
-# Create data stream with manual control
+# Create data stream with auto context management
 stream = llm.astream_events(messages, version="v2")
-data_stream = LangChainAdapter.to_data_stream(stream)
+data_stream = LangChainAdapter.to_data_stream(
+    stream, 
+    options={"auto_context": True}
+)
 
-# Emit custom events
-await data_stream.emit_text_delta("Custom text")
-await data_stream.emit_source_url("https://example.com", "Example")
-await data_stream.emit_data({"key": "value"})
+# Use context to emit custom events
+context = DataStreamContext.get_current_stream()
+if context:
+    await context.emit_text_delta("Custom text")
+    await context.emit_source_url("https://example.com", "Example")
+    await context.emit_data({"key": "value"})
 ```
 
 ## Core Components
@@ -181,26 +186,24 @@ data_stream = LangChainAdapter.to_data_stream(
 )
 ```
 
-### Manual Stream Control
+### Context Management
 
 ```python
-# Create manual stream controller
-from langchain_aisdk_adapter import ManualStreamController
+# Use DataStreamContext for event emission
+from langchain_aisdk_adapter import DataStreamContext
 
-controller = ManualStreamController()
-
-# Emit various chunk types
-await controller.emit_text_start("text-1")
-await controller.emit_text_delta("Hello", "text-1")
-await controller.emit_text_end("Hello World", "text-1")
-
-# Emit tool calls
-await controller.emit_tool_input_start("tool-1", "search")
-await controller.emit_tool_input_available("tool-1", "search", {"query": "AI"})
-await controller.emit_tool_output_available("tool-1", "Results found")
-
-# Get the stream
-stream = controller.get_stream()
+# Within a callback or handler
+context = DataStreamContext.get_current_stream()
+if context:
+    # Emit various chunk types
+    await context.emit_text_start("text-1")
+    await context.emit_text_delta("Hello", "text-1")
+    await context.emit_text_end("Hello World", "text-1")
+    
+    # Emit tool calls
+    await context.emit_tool_input_start("tool-1", "search")
+    await context.emit_tool_input_available("tool-1", "search", {"query": "AI"})
+    await context.emit_tool_output_available("tool-1", "Results found")
 ```
 
 ### Error Handling
@@ -326,7 +329,8 @@ async for chunk in data_stream:
 - **`DataStreamWithEmitters`**: Stream with manual emit methods
 - **`DataStreamResponse`**: FastAPI response wrapper
 - **`DataStreamWriter`**: Stream writer for merging
-- **`ManualStreamController`**: Manual stream control
+- **`DataStreamContext`**: Context-based stream control
+- **`ContextLifecycleManager`**: Context lifecycle management
 - **`BaseAICallbackHandler`**: Base callback handler
 - **`ProtocolStrategy`**: Protocol strategy interface
 - **`AISDKv4Strategy`**: AI SDK v4 implementation
@@ -334,9 +338,7 @@ async for chunk in data_stream:
 
 ### Functions
 
-- **`to_data_stream()`**: Legacy compatibility function
-- **`to_data_stream_response()`**: Legacy compatibility function
-- **`merge_into_data_stream()`**: Legacy compatibility function
+
 
 ## Contributing
 

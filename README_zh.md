@@ -75,19 +75,24 @@ async def chat(request: dict):
     )
 ```
 
-### 手动事件发射
+### 基于上下文的事件发射
 
 ```python
-from langchain_aisdk_adapter import LangChainAdapter
+from langchain_aisdk_adapter import LangChainAdapter, DataStreamContext
 
-# 创建具有手动控制的数据流
+# 创建具有自动上下文管理的数据流
 stream = llm.astream_events(messages, version="v2")
-data_stream = LangChainAdapter.to_data_stream(stream)
+data_stream = LangChainAdapter.to_data_stream(
+    stream, 
+    options={"auto_context": True}
+)
 
-# 发出自定义事件
-await data_stream.emit_text_delta("自定义文本")
-await data_stream.emit_source_url("https://example.com", "示例")
-await data_stream.emit_data({"key": "value"})
+# 使用上下文发出自定义事件
+context = DataStreamContext.get_current_stream()
+if context:
+    await context.emit_text_delta("自定义文本")
+    await context.emit_source_url("https://example.com", "示例")
+    await context.emit_data({"key": "value"})
 ```
 
 ## 核心组件
@@ -181,26 +186,24 @@ data_stream = LangChainAdapter.to_data_stream(
 )
 ```
 
-### 手动流控制
+### 上下文管理
 
 ```python
-# 创建手动流控制器
-from langchain_aisdk_adapter import ManualStreamController
+# 使用 DataStreamContext 进行事件发射
+from langchain_aisdk_adapter import DataStreamContext
 
-controller = ManualStreamController()
-
-# 发出各种块类型
-await controller.emit_text_start("text-1")
-await controller.emit_text_delta("你好", "text-1")
-await controller.emit_text_end("你好世界", "text-1")
-
-# 发出工具调用
-await controller.emit_tool_input_start("tool-1", "search")
-await controller.emit_tool_input_available("tool-1", "search", {"query": "AI"})
-await controller.emit_tool_output_available("tool-1", "找到结果")
-
-# 获取流
-stream = controller.get_stream()
+# 在回调或处理器中
+context = DataStreamContext.get_current_stream()
+if context:
+    # 发出各种块类型
+    await context.emit_text_start("text-1")
+    await context.emit_text_delta("你好", "text-1")
+    await context.emit_text_end("你好世界", "text-1")
+    
+    # 发出工具调用
+    await context.emit_tool_input_start("tool-1", "search")
+    await context.emit_tool_input_available("tool-1", "search", {"query": "AI"})
+    await context.emit_tool_output_available("tool-1", "找到结果")
 ```
 
 ### 错误处理
@@ -326,7 +329,8 @@ async for chunk in data_stream:
 - **`DataStreamWithEmitters`**：具有手动发射方法的流
 - **`DataStreamResponse`**：FastAPI 响应包装器
 - **`DataStreamWriter`**：用于合并的流写入器
-- **`ManualStreamController`**：手动流控制
+- **`DataStreamContext`**：基于上下文的流控制
+- **`ContextLifecycleManager`**：上下文生命周期管理
 - **`BaseAICallbackHandler`**：基础回调处理器
 - **`ProtocolStrategy`**：协议策略接口
 - **`AISDKv4Strategy`**：AI SDK v4 实现
@@ -334,9 +338,7 @@ async for chunk in data_stream:
 
 ### 函数
 
-- **`to_data_stream()`**：遗留兼容性函数
-- **`to_data_stream_response()`**：遗留兼容性函数
-- **`merge_into_data_stream()`**：遗留兼容性函数
+
 
 ## 贡献
 
