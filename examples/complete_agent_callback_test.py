@@ -19,7 +19,15 @@ from langchain.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
 
-from langchain_aisdk_adapter import LangChainAdapter,BaseAICallbackHandler, Message
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("Warning: python-dotenv not installed. Please install it with: uv add python-dotenv")
+    print("Falling back to manual environment variable reading.")
+
+from langchain_aisdk_adapter import LangChainAdapter,DataStreamContext, BaseAICallbackHandler, Message
 
 
 @tool
@@ -159,7 +167,14 @@ Thought:{agent_scratchpad}"""
             agent_stream,
             callbacks=callbacks,
             message_id="test-message-001",
-            options={"auto_events": True, "protocol_version": "v4"}
+            options={"auto_events": True, "protocol_version": "v5"}
+        )
+        
+        # Test DataStreamContext.emit_file with v4 protocol (requires data and mime_type)
+        # await DataStreamContext.emit_file(data="report.pdf", mime_type="application/pdf")
+        await DataStreamContext.emit_source_url(
+            url="https://example.com/docs",
+            description="Example documentation"
         )
         
         # Test various emit methods directly on the stream with proper sequence

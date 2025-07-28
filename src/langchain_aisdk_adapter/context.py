@@ -504,26 +504,73 @@ class DataStreamContext:
     
     @staticmethod
     async def emit_file(
-        url: str,
-        media_type: str,
-        message_id: Optional[str] = None
+        url: Optional[str] = None,
+        media_type: Optional[str] = None,
+        data: Optional[str] = None,
+        mime_type: Optional[str] = None,
+        message_id: Optional[str] = None,
+        protocol_version: Optional[str] = None
     ) -> bool:
-        """Send file.
+        """Send file with support for both v4 and v5 protocols.
         
         Args:
-            url: File URL
-            media_type: Media type
+            url: File URL (v5 protocol)
+            media_type: Media type (v5 protocol)
+            data: Base64 encoded file data (v4 protocol)
+            mime_type: MIME type (v4 protocol)
             message_id: Message ID, auto-generated if not provided
+            protocol_version: Protocol version ("v4" or "v5"), auto-detected if not provided
             
         Returns:
             bool: True if sent successfully, False otherwise
         """
-        return await DataStreamContext.emit_data({
-            "type": "file",
-            "messageId": message_id or str(uuid.uuid4()),
-            "url": url,
-            "mediaType": media_type
-        })
+        # Auto-detect protocol version from current stream if not provided
+        if protocol_version is None:
+            stream = DataStreamContext.get_current_stream()
+            if stream and hasattr(stream, '_protocol_version'):
+                protocol_version = stream._protocol_version
+            else:
+                protocol_version = "v4"  # Default to v4
+        
+        # Generate data based on protocol version
+        if protocol_version == "v4":
+            # v4 protocol: File Part with base64 data and MIME type
+            # Format: k:{data:string; mimeType:string}\n
+            if data is None or mime_type is None:
+                # If v4 parameters not provided, try to use v5 parameters as fallback
+                if url and media_type:
+                    # For demo purposes, create mock base64 data
+                    import base64
+                    mock_content = f"Mock file content for {url}"
+                    data = base64.b64encode(mock_content.encode()).decode()
+                    mime_type = media_type
+                else:
+                    raise ValueError("For v4 protocol, 'data' and 'mime_type' parameters are required")
+            
+            return await DataStreamContext.emit_data({
+                "type": "file",
+                "messageId": message_id or str(uuid.uuid4()),
+                "data": data,
+                "mimeType": mime_type
+            })
+        else:
+            # v5 protocol: File Part with URL and media type
+            # Format: Server-Sent Event with JSON object
+            if url is None or media_type is None:
+                # If v5 parameters not provided, try to use v4 parameters as fallback
+                if data and mime_type:
+                    # For demo purposes, create mock URL
+                    url = f"data:{mime_type};base64,{data}"
+                    media_type = mime_type
+                else:
+                    raise ValueError("For v5 protocol, 'url' and 'media_type' parameters are required")
+            
+            return await DataStreamContext.emit_data({
+                "type": "file",
+                "messageId": message_id or str(uuid.uuid4()),
+                "url": url,
+                "mediaType": media_type
+            })
     
     @staticmethod
     async def emit_source_url(

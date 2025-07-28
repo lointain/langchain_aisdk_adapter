@@ -166,7 +166,7 @@ Thought:{agent_scratchpad}"""
             agent_stream,
             callbacks=callbacks,
             message_id="test-message-001",
-            options={"auto_events": False}
+            options={"auto_events": False, "auto_context": True}
         )
         
         # Test various emit methods using DataStreamContext with proper sequence
@@ -186,8 +186,8 @@ Thought:{agent_scratchpad}"""
             await DataStreamContext.emit_text_start(text_id=text_id)
             print("✓ Emitted text-start")
             
-            await DataStreamContext.emit_text_delta(delta="Hello ", text_id=text_id)
-            await DataStreamContext.emit_text_delta(delta="world!", text_id=text_id)
+            await DataStreamContext.emit_text_delta(text_delta="Hello ", text_id=text_id)
+            await DataStreamContext.emit_text_delta(text_delta="world!", text_id=text_id)
             print("✓ Emitted text-delta chunks")
             
             await DataStreamContext.emit_text_end(text="Hello world!", text_id=text_id)
@@ -201,31 +201,105 @@ Thought:{agent_scratchpad}"""
             await DataStreamContext.emit_tool_input_delta(tool_call_id=tool_call_id, input_text_delta='{"city": "Beijing"}')
             print("✓ Emitted tool-input-delta")
             
-            # 4. File attachments
-            await DataStreamContext.emit_file(url="report.pdf", media_type="application/pdf")
-            print("✓ Emitted file: report.pdf")
-            
-            await DataStreamContext.emit_file(url="data.json", media_type="application/json")
-            print("✓ Emitted file: data.json")
-            
-            # 5. Source documents
-            await DataStreamContext.emit_source_document(
-                source_id="doc-001",
-                media_type="text/plain",
-                title="Example Document",
-                filename="example.txt"
+            await DataStreamContext.emit_tool_input_available(
+                tool_call_id=tool_call_id, 
+                tool_name="get_weather", 
+                input_data={"city": "Beijing"}
             )
-            print("✓ Emitted source-document")
+            print("✓ Emitted tool-input-available")
             
-            # 6. Custom data
+            await DataStreamContext.emit_tool_output_available(
+                tool_call_id=tool_call_id, 
+                output="The weather in Beijing is sunny with 22°C temperature."
+            )
+            print("✓ Emitted tool-output-available")
+            
+            # Test tool output error
+            tool_call_id_2 = "tool-002"
+            await DataStreamContext.emit_tool_output_error(
+                tool_call_id=tool_call_id_2,
+                error_text="Tool execution failed: timeout"
+            )
+            print("✓ Emitted tool-output-error")
+            
+            # 4. File attachments - Test both v4 and v5 protocols
+            # v5 protocol (default)
+            await DataStreamContext.emit_file(url="https://example.com/report.pdf", media_type="application/pdf")
+            print("✓ Emitted file (v5): report.pdf")
+            
+            # v4 protocol with base64 data
+            import base64
+            sample_data = "This is sample file content for testing"
+            base64_data = base64.b64encode(sample_data.encode()).decode()
+            await DataStreamContext.emit_file(
+                data=base64_data, 
+                mime_type="text/plain", 
+                protocol_version="v4"
+            )
+            print("✓ Emitted file (v4): base64 data")
+            
+            # v5 protocol explicitly
+            await DataStreamContext.emit_file(
+                url="https://example.com/data.json", 
+                media_type="application/json",
+                protocol_version="v5"
+            )
+            print("✓ Emitted file (v5): data.json")
+            
+            # Test fallback: v4 params with v5 protocol
+            await DataStreamContext.emit_file(
+                data=base64_data,
+                mime_type="application/pdf",
+                protocol_version="v5"
+            )
+            print("✓ Emitted file (v5 fallback): converted from v4 params")
+            
+            # 5. Step control
+            await DataStreamContext.emit_start_step(step_type="reasoning", step_id="step-001")
+            print("✓ Emitted start-step")
+            
+            await DataStreamContext.emit_finish_step(step_type="reasoning", step_id="step-001")
+            print("✓ Emitted finish-step")
+            
+            # 6. Reasoning sequence
+            reasoning_id = "reasoning-001"
+            await DataStreamContext.emit_reasoning_start(reasoning_id=reasoning_id)
+            print("✓ Emitted reasoning-start")
+            
+            await DataStreamContext.emit_reasoning_delta(delta="Let me think about this...", reasoning_id=reasoning_id)
+            print("✓ Emitted reasoning-delta")
+            
+            await DataStreamContext.emit_reasoning_end(reasoning_id=reasoning_id)
+            print("✓ Emitted reasoning-end")
+            
+            # 7. Source documents and URLs
+            await DataStreamContext.emit_source_url(
+                url="https://example.com/docs",
+                description="Example documentation"
+            )
+            print("✓ Emitted source-url")
+            
+            # Note: emit_source_document is only available on DataStreamWithEmitters, not DataStreamContext
+            # This demonstrates the difference between context-based and stream-based emit methods
+            
+            # 8. Message metadata
+            await DataStreamContext.emit_message_metadata(
+                metadata={"model": "deepseek-chat", "temperature": 0.1}
+            )
+            print("✓ Emitted message-metadata")
+            
+            # 9. Custom data
             await DataStreamContext.emit_data(data={"key": "value", "number": 42})
             print("✓ Emitted data chunk")
             
-            # 7. Error handling
+            # 10. Error handling
             await DataStreamContext.emit_error(error_text="This is a test error message.")
             print("✓ Emitted error")
             
-            # 8. Finish message
+            await DataStreamContext.emit_abort(reason="User requested abort")
+            print("✓ Emitted abort")
+            
+            # 11. Finish message
             await DataStreamContext.emit_finish()
             print("✓ Emitted finish")
             
