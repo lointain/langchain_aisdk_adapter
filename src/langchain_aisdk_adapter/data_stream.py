@@ -5,7 +5,11 @@ import json
 import uuid
 from typing import AsyncGenerator, Dict, Any, Optional, List
 
-from fastapi.responses import StreamingResponse
+try:
+    from fastapi.responses import StreamingResponse
+except ImportError:
+    # Fallback for when FastAPI is not available
+    StreamingResponse = None
 
 from .protocol_strategy import ProtocolConfig
 from .text_processing_adapter import TextProcessingAdapter
@@ -274,7 +278,7 @@ class DataStreamWithEmitters:
         message_id: Optional[str] = None
     ) -> None:
         """Emit a reasoning-start chunk."""
-        chunk = await self._context.emit_reasoning_start(reasoning_id, message_id)
+        (reasoning_id,self._c)
         await self._emit_manual_chunk(chunk)
     
     async def emit_reasoning_delta(
@@ -460,20 +464,12 @@ class DataStreamWithEmitters:
                         # For auto chunks (from StreamProcessor), don't reprocess through message_builder
                         # as they have already been processed. Only process manual chunks.
                         if source == "manual" and self._message_builder:
-                            # Get newly generated parts from message builder for manual chunks only
-                            new_parts = await self._message_builder.add_chunk(clean_chunk)
+                            # Record chunk in message builder (now only records to stream history)
+                            await self._message_builder.add_chunk(clean_chunk)
                             
-                            # Create chunk with parts
+                            # Create chunk without parts for output (parts will be generated at the end)
                             chunk_with_parts = dict(clean_chunk)
-                            if new_parts:
-                                # Convert UIPart objects to dictionaries for JSON serialization
-                                parts_dicts = []
-                                for part in new_parts:
-                                    if hasattr(part, '__dict__'):
-                                        parts_dicts.append(part.__dict__)
-                                    else:
-                                        parts_dicts.append(part)
-                                chunk_with_parts['parts'] = parts_dicts
+                            chunk_with_parts['parts'] = []
                             
                             final_chunk = chunk_with_parts
                         else:

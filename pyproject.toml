@@ -41,52 +41,95 @@ classifiers = [
 ]
 dependencies = [
     "pydantic>=2.0.0",
-    "langchain-core>=0.1.0",
-    "typing-extensions>=4.0.0",
-    "python-dotenv>=1.0.0",
-    "aiohttp>=3.12.14",
-    "langchain-community>=0.3.27",
-    "uvicorn[standard]>=0.35.0",
-    "python-multipart>=0.0.20",
-    "aiofiles>=24.1.0",
-    "fastapi>=0.116.1",
+    "typing-extensions>=4.0.0"
 ]
 
 [project.optional-dependencies]
+# Core web functionality (FastAPI integration)
+web = [
+    "fastapi>=0.115.6",
+    "uvicorn[standard]>=0.35.0",
+    "python-multipart>=0.0.20",
+    "aiofiles>=24.1.0"
+]
+
+# LangChain integration
+langchain = [
+    "langchain-core>=0.1.0",
+    "langchain-community>=0.3.27"
+]
+
+# LangGraph integration  
+langgraph = [
+    "langgraph>=0.2.60"
+]
+
+# HTTP client for external requests
+http = [
+    "aiohttp>=3.12.14"
+]
+
+# Environment configuration
+config = [
+    "python-dotenv>=1.0.0"
+]
+
+# Development dependencies
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
     "black>=23.0.0",
     "isort>=5.12.0",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
-    "pre-commit>=3.0.0"
+    "pre-commit>=3.0.0",
+    "coverage>=7.0.0",
+    "pytest-cov>=4.0.0"
 ]
+
+# Test dependencies only
 test = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.10.0",
+    "coverage>=7.0.0",
     "pytest-cov>=4.0.0"
 ]
+
+# Example dependencies
 examples = [
-    "langchain>=0.1.0",
-    "langgraph>=0.1.0",
-    "langchain-openai>=0.1.0",
-    "openai>=1.0.0"
+    "langchain>=0.3.27",
+    "langgraph>=0.2.60",
+    "langchain-openai>=0.2.14",
+    "openai>=1.58.1",
+    "python-dotenv>=1.0.0",
 ]
+
+# All optional dependencies
 all = [
-    "langchain>=0.1.0",
-    "langgraph>=0.1.0",
-    "langchain-openai>=0.1.0",
-    "openai>=1.0.0",
+    "fastapi>=0.115.6",
+    "uvicorn[standard]>=0.35.0",
+    "python-multipart>=0.0.20",
+    "aiofiles>=24.1.0",
+    "langchain-core>=0.1.0",
+    "langchain-community>=0.3.27",
+    "langgraph>=0.2.60",
+    "aiohttp>=3.12.14",
+    "python-dotenv>=1.0.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
     "black>=23.0.0",
     "isort>=5.12.0",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
-    "pre-commit>=3.0.0"
+    "pre-commit>=3.0.0",
+    "coverage>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "langchain>=0.3.27",
+    "langchain-openai>=0.2.14",
+    "openai>=1.58.1"
 ]
 docs = [
     "mkdocs>=1.5.0",

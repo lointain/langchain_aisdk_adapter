@@ -26,9 +26,68 @@ A Python adapter that aims to convert LangChain streaming outputs to AI SDK comp
 
 ## Installation
 
+### Core Installation (Minimal)
+
+For basic adapter functionality without web or AI framework dependencies:
+
 ```bash
-pip install -i https://test.pypi.org/simple/ langchain-aisdk-adapter
+pip install langchain-aisdk-adapter
+# or
+uv add langchain-aisdk-adapter
 ```
+
+### Web Application Integration
+
+For FastAPI integration and web server functionality:
+
+```bash
+pip install langchain-aisdk-adapter[web,langchain,config]
+# or
+uv add langchain-aisdk-adapter[web,langchain,config]
+```
+
+### LangGraph Development
+
+For LangGraph-based applications:
+
+```bash
+pip install langchain-aisdk-adapter[langgraph,config]
+# or
+uv add langchain-aisdk-adapter[langgraph,config]
+```
+
+### Running Examples
+
+To run the example scripts:
+
+```bash
+pip install langchain-aisdk-adapter[examples]
+# or
+uv add langchain-aisdk-adapter[examples]
+```
+
+### Full Installation
+
+To install all optional dependencies:
+
+```bash
+pip install langchain-aisdk-adapter[all]
+# or
+uv add langchain-aisdk-adapter[all]
+```
+
+### Available Optional Dependencies
+
+- `web` - FastAPI, uvicorn, and web server dependencies
+- `langchain` - LangChain core and community packages
+- `langgraph` - LangGraph integration
+- `http` - HTTP client (aiohttp)
+- `config` - Environment configuration (python-dotenv)
+- `dev` - Development and testing tools
+- `examples` - Dependencies for example scripts
+- `all` - All optional dependencies
+
+See [DEPENDENCIES.md](DEPENDENCIES.md) for detailed dependency information.
 
 ## Quick Start
 

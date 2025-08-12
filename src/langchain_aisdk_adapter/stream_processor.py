@@ -240,14 +240,12 @@ class StreamProcessor:
                 yield chunk
         
         # Handle tool events (direct tool calls)
-        # NOTE: Disabled direct tool event processing to avoid duplication with intermediate_steps
-        # The intermediate_steps processing provides complete and accurate tool information
-        # elif event_type == "on_tool_start":
-        #     async for chunk in self._handle_tool_start(event):
-        #         yield chunk
-        # elif event_type == "on_tool_end":
-        #     async for chunk in self._handle_tool_end(event):
-        #         yield chunk
+        elif event_type == "on_tool_start":
+            async for chunk in self._handle_tool_start(event):
+                yield chunk
+        elif event_type == "on_tool_end":
+            async for chunk in self._handle_tool_end(event):
+                yield chunk
     
     async def _handle_chat_model_start(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle chat model start event."""
@@ -311,111 +309,137 @@ class StreamProcessor:
         # after all tool outputs are available
     
     async def _handle_tool_start(self, event: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
-        """Handle tool start event."""
-        # Extract data and event-level information
-        data = event.get("data", {})
+        """Handle tool start events from LangChain.
         
-        # Tool name can be at event level or in data
-        run_id = event.get("run_id") or data.get("run_id", str(uuid.uuid4()))
+        Only process LangGraph tool events which have complete information.
+        Traditional LangChain tool events are handled via intermediate_steps.
+        """
+        # Check if this is a LangGraph tool event by looking for langgraph metadata
+        metadata = event.get("metadata", {})
+        is_langgraph = any(key.startswith("langgraph") for key in metadata.keys())
         
-        # Try different possible field names for tool name
-        name = (
-            event.get("name") or  # Event level name (most common for LangChain)
-            data.get("name") or 
-            data.get("tool_name") or 
-            data.get("tool") or
-            (data.get("serialized", {}).get("name")) or
-            (data.get("serialized", {}).get("id", [""])[-1] if isinstance(data.get("serialized", {}).get("id"), list) else "") or
-            (data.get("metadata", {}).get("name")) or
-            "unknown_tool"
-        )
-        
-        # Additional extraction from nested structures
-        if name == "unknown_tool" and "serialized" in data:
-            serialized = data["serialized"]
-            if isinstance(serialized, dict):
-                # Try to extract from various nested locations
-                name = (
-                    serialized.get("_type") or
-                    serialized.get("class_name") or
-                    (serialized.get("kwargs", {}).get("name")) or
-                    name
-                )
-        
-        # Extract inputs - they might be in different locations
-        inputs = (
-            data.get("inputs") or 
-            data.get("input") or 
-            data.get("arguments") or
-            {}
-        )
-        
-        # Skip if we can't determine the tool name
-        if name == "unknown_tool":
+        if not is_langgraph:
+            # Skip traditional LangChain tool events - they will be handled via intermediate_steps
             return
+            yield  # Make this a generator function
         
-        tool_call_id = str(run_id)
+        # Process LangGraph tool events with complete information
+        data = event.get("data", {})
+        tool_name = event.get("name", "")
+        run_id = event.get("run_id", "")
         
-        # Store tool call info
-        self.tool_calls[tool_call_id] = {
-            "name": name,
-            "inputs": inputs,
-            "state": "call"
-        }
+        # LangGraph tool events have input data in data.input
+        tool_input = data.get("input")
         
-        # Emit tool input start
-        yield {
-            "type": "tool-input-start",
-            "toolCallId": tool_call_id,
-            "toolName": name
-        }
+        if tool_input is not None and tool_name and run_id:
+            # This is a LangGraph tool event with complete information
+            tool_call_id = f"tool_{run_id}"
+            
+            # Only process if we haven't seen this tool call before
+            if tool_call_id not in self.tool_calls:
+                # Store tool call info (without output yet)
+                self.tool_calls[tool_call_id] = {
+                    "name": tool_name,
+                    "inputs": tool_input,
+                    "outputs": None,  # Will be filled in _handle_tool_end
+                    "state": "running"
+                }
+                
+                # Emit tool input start
+                yield {
+                    "type": "tool-input-start",
+                    "toolCallId": tool_call_id,
+                    "toolName": tool_name
+                }
+                
+                # Emit tool input delta (serialize the input as JSON)
+                import json
+                input_json = json.dumps(tool_input if isinstance(tool_input, dict) else {"input": tool_input})
+                yield {
+                    "type": "tool-input-delta",
+                    "toolCallId": tool_call_id,
+                    "inputTextDelta": input_json
+                }
+                
+                # Emit tool input available
+                yield {
+                    "type": "tool-input-available",
+                    "toolCallId": tool_call_id,
+                    "toolName": tool_name,
+                    "input": tool_input
+                }
         
-        # Emit tool input delta (serialize the input as JSON)
-        import json
-        input_json = json.dumps(inputs if isinstance(inputs, dict) else {"input": inputs})
-        yield {
-            "type": "tool-input-delta",
-            "toolCallId": tool_call_id,
-            "inputTextDelta": input_json
-        }
-        
-        # Emit tool input available
-        yield {
-            "type": "tool-input-available",
-            "toolCallId": tool_call_id,
-            "toolName": name,
-            "input": inputs
-        }
-        
-        # Tool invocation will be handled by MessageBuilder
+        return
+        yield  # Make this a generator function
+    
+    def _serialize_tool_output(self, output: Any) -> Any:
+        """Serialize tool output to ensure JSON compatibility."""
+        if hasattr(output, 'content'):
+            # Handle LangChain ToolMessage or similar objects
+            return output.content
+        elif hasattr(output, 'dict'):
+            # Handle Pydantic models
+            return output.dict()
+        elif hasattr(output, '__dict__'):
+            # Handle other objects with __dict__
+            return {k: v for k, v in output.__dict__.items() if not k.startswith('_')}
+        elif isinstance(output, (list, tuple)):
+            # Handle lists/tuples recursively
+            return [self._serialize_tool_output(item) for item in output]
+        elif isinstance(output, dict):
+            # Handle dictionaries recursively
+            return {k: self._serialize_tool_output(v) for k, v in output.items()}
+        else:
+            # Return as-is for basic types (str, int, float, bool, None)
+            return output
     
     async def _handle_tool_end(self, event: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
-        """Handle tool end event."""
-        # Extract data and event-level information
+        """Handle tool end events from LangChain.
+        
+        Only process LangGraph tool events which have complete information.
+        Traditional LangChain tool events are handled via intermediate_steps.
+        """
+        # Check if this is a LangGraph tool event by looking for langgraph metadata
+        metadata = event.get("metadata", {})
+        is_langgraph = any(key.startswith("langgraph") for key in metadata.keys())
+        
+        if not is_langgraph:
+            # Skip traditional LangChain tool events - they will be handled via intermediate_steps
+            return
+            yield  # Make this a generator function
+        
+        # Process LangGraph tool events with complete information
         data = event.get("data", {})
+        tool_name = event.get("name", "")
+        run_id = event.get("run_id", "")
         
-        run_id = event.get("run_id") or data.get("run_id", "")
-        outputs = data.get("outputs") or data.get("output", {})
+        # LangGraph tool events have output data in data.output
+        tool_output = data.get("output")
         
-        tool_call_id = str(run_id)
+        if tool_output is not None and tool_name and run_id:
+            # This is a LangGraph tool event with complete information
+            tool_call_id = f"tool_{run_id}"
+            
+            # Update tool call info with output
+            if tool_call_id in self.tool_calls:
+                # Serialize the output to ensure JSON compatibility
+                serialized_output = self._serialize_tool_output(tool_output)
+                
+                self.tool_calls[tool_call_id]["outputs"] = serialized_output
+                self.tool_calls[tool_call_id]["state"] = "result"
+                
+                # Emit tool output available
+                yield {
+                    "type": "tool-output-available",
+                    "toolCallId": tool_call_id,
+                    "output": serialized_output
+                }
+                
+                # Mark that we have completed a tool call in this step
+                self.tool_completed_in_current_step = True
         
-        # Only process if we have a corresponding tool start event
-        if tool_call_id in self.tool_calls:
-            # Update tool call state
-            self.tool_calls[tool_call_id]["outputs"] = outputs
-            self.tool_calls[tool_call_id]["state"] = "result"
-            
-            # Emit tool output available
-            yield {
-                "type": "tool-output-available",
-                "toolCallId": tool_call_id,
-                "output": outputs
-            }
-            
-            # Tool invocation update will be handled by MessageBuilder
-            
-            # Mark that we have completed a tool call in this step
-            self.tool_completed_in_current_step = True
+        return
+        yield  # Make this a generator function
     
     async def _handle_chain_stream(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle chain stream event that might contain tool information."""
@@ -436,10 +460,24 @@ class StreamProcessor:
                 yield ui_chunk
     
     async def _process_intermediate_steps(self, intermediate_steps) -> AsyncGenerator[UIMessageChunk, None]:
-        """Process intermediate steps to extract tool calls."""
+        """Process intermediate steps to extract tool calls.
+        
+        Supports both traditional ReAct agent format (action, result) tuples
+        and LangGraph format (messages list).
+        """
         if not intermediate_steps:
             return
+        
+        # Handle LangGraph format: intermediate_steps is a list of messages
+        if isinstance(intermediate_steps, list) and intermediate_steps:
+            # Check if this looks like LangGraph messages format
+            first_item = intermediate_steps[0]
+            if hasattr(first_item, 'content') or hasattr(first_item, 'tool_calls'):
+                 async for chunk in self._process_langgraph_messages(intermediate_steps):
+                     yield chunk
+                 return
             
+        # Handle traditional ReAct agent format: list of (action, result) tuples
         for step in intermediate_steps:
             if isinstance(step, tuple) and len(step) == 2:
                 action, result = step
@@ -499,7 +537,20 @@ class StreamProcessor:
                         # Tool invocation will be handled by MessageBuilder
                         
                         # Mark that we have completed a tool call in this step
-                        self.tool_completed_in_current_step = True
+                self.tool_completed_in_current_step = True
+        
+        # After processing all tool calls, handle step completion
+        if self.tool_completed_in_current_step and self.current_step_active and self.llm_generation_complete:
+            yield {
+                "type": "finish-step",
+                "finishReason": "tool-calls",
+                "usage": self.current_usage.copy(),
+                "isContinued": False
+            }
+            self.current_step_active = False
+            self.tool_completed_in_current_step = False
+            self.need_new_step_for_text = True
+            self.llm_generation_complete = False
         
         # After processing all intermediate steps (all tools in this LLM cycle),
         # finish the current step if we have tool calls and LLM generation is complete
@@ -514,6 +565,82 @@ class StreamProcessor:
             self.tool_completed_in_current_step = False
             self.need_new_step_for_text = True
             self.llm_generation_complete = False
+    
+    async def _process_langgraph_messages(self, messages) -> AsyncGenerator[UIMessageChunk, None]:
+        """Process LangGraph messages format to extract tool calls.
+        
+        LangGraph intermediate_steps contains a list of messages including:
+        - AIMessage with tool_calls
+        - ToolMessage with results
+        """
+        tool_calls_map = {}  # Map tool_call_id to tool info
+        tool_results_map = {}  # Map tool_call_id to results
+        
+        # First pass: collect tool calls and results
+        for message in messages:
+            # Handle AIMessage with tool_calls
+            if hasattr(message, 'tool_calls') and message.tool_calls:
+                for tool_call in message.tool_calls:
+                    tool_call_id = tool_call.get('id', f"tool_{abs(hash(str(tool_call)))}")
+                    tool_calls_map[tool_call_id] = {
+                        'name': tool_call.get('name'),
+                        'args': tool_call.get('args', {}),
+                        'id': tool_call_id
+                    }
+            
+            # Handle ToolMessage with results
+            if hasattr(message, 'tool_call_id') and hasattr(message, 'content'):
+                tool_call_id = message.tool_call_id
+                tool_results_map[tool_call_id] = message.content
+        
+        # Second pass: emit tool events for matched pairs
+        for tool_call_id, tool_info in tool_calls_map.items():
+            if tool_call_id in tool_results_map and tool_call_id not in self.tool_calls:
+                tool_name = tool_info['name']
+                tool_args = tool_info['args']
+                tool_result = tool_results_map[tool_call_id]
+                
+                # Store tool call info
+                self.tool_calls[tool_call_id] = {
+                    "name": tool_name,
+                    "inputs": tool_args,
+                    "outputs": tool_result,
+                    "state": "result"
+                }
+                
+                # Emit tool input start
+                yield {
+                    "type": "tool-input-start",
+                    "toolCallId": tool_call_id,
+                    "toolName": tool_name
+                }
+                
+                # Emit tool input delta (serialize the input as JSON)
+                import json
+                input_json = json.dumps(tool_args if isinstance(tool_args, dict) else {"input": tool_args})
+                yield {
+                    "type": "tool-input-delta",
+                    "toolCallId": tool_call_id,
+                    "inputTextDelta": input_json
+                }
+                
+                # Emit tool input available
+                yield {
+                    "type": "tool-input-available",
+                    "toolCallId": tool_call_id,
+                    "toolName": tool_name,
+                    "input": tool_args
+                }
+                
+                # Emit tool output available
+                yield {
+                    "type": "tool-output-available",
+                    "toolCallId": tool_call_id,
+                    "output": tool_result
+                }
+                
+                # Mark that we have completed a tool call in this step
+                self.tool_completed_in_current_step = True
     
     async def _handle_incremental_text(self, text: str) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle incremental text content using unified protocol generator."""
