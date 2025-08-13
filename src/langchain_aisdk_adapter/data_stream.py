@@ -551,7 +551,14 @@ class DataStreamWithEmitters:
                 if formatted_chunk:
                     return formatted_chunk
         
-        # Get usage information from stream processor if available
+        # If stream_processor has auto_events enabled, it will handle finish events
+        # so we don't need to send termination marker to avoid duplicate 'd:' events
+        if (self._stream_processor and 
+            hasattr(self._stream_processor, 'auto_events') and 
+            self._stream_processor.auto_events):
+            return None
+        
+        # Get usage info from stream processor if available
         usage_info = None
         if self._stream_processor and hasattr(self._stream_processor, 'current_usage'):
             usage_info = self._stream_processor.current_usage
@@ -671,8 +678,13 @@ class DataStreamResponse(StreamingResponse):
                 if formatted_chunk:
                     yield formatted_chunk
         
-        # Send protocol-specific termination marker
-        yield self.protocol_config.strategy.get_termination_marker()
+        # Send protocol-specific termination marker only if stream_processor doesn't handle finish events
+        # to avoid duplicate 'd:' events
+        if not (hasattr(self, '_stream_processor') and 
+                self._stream_processor and 
+                hasattr(self._stream_processor, 'auto_events') and 
+                self._stream_processor.auto_events):
+            yield self.protocol_config.strategy.get_termination_marker()
     
 
 

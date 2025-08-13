@@ -125,9 +125,10 @@ class AISDKv4Strategy(ProtocolStrategy):
         elif chunk_type == "tool-output-available":
             tool_call_id = chunk.get("toolCallId", "")
             result = chunk.get("output", "")
+            # Create the tool data structure but handle result serialization carefully
             tool_data = {
                 "toolCallId": tool_call_id,
-                "result": result
+                "result": result  # Keep result as-is, don't double-serialize
             }
             return f'a:{json.dumps(tool_data, ensure_ascii=False)}\n'
         

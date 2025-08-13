@@ -270,10 +270,14 @@ class StreamProcessor:
             self.text_id = f"text-{uuid.uuid4()}"
             self.has_text_started = False
             self._accumulated_text = ""
-            yield {
-                "type": "start-step",
-                "messageId": self.current_step_id
-            }
+            # Only create start-step event for the first step
+            # Subsequent steps after tool calls should not create new start-step events
+            # to avoid duplicate messageId in protocol output
+            if self.step_count == 1:
+                yield {
+                    "type": "start-step",
+                    "messageId": self.current_step_id
+                }
             self.current_step_active = True
     
     async def _handle_chat_model_end(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
@@ -452,6 +456,17 @@ class StreamProcessor:
                 # Mark that we have completed a tool call in this step
                 self.tool_completed_in_current_step = True
         
+        # After processing all tool calls, emit finish-step if we have completed tools
+        if self.tool_completed_in_current_step and self.current_step_active:
+            yield {
+                "type": "finish-step",
+                "finishReason": "tool-calls",
+                "usage": {"promptTokens": 0, "completionTokens": 0},
+                "isContinued": False
+            }
+            self.current_step_active = False
+            self.tool_completed_in_current_step = False
+        
         return
         yield  # Make this a generator function
     
@@ -565,20 +580,6 @@ class StreamProcessor:
             self.tool_completed_in_current_step = False
             self.need_new_step_for_text = True
             self.llm_generation_complete = False
-        
-        # After processing all intermediate steps (all tools in this LLM cycle),
-        # finish the current step if we have tool calls and LLM generation is complete
-        if self.tool_completed_in_current_step and self.current_step_active and self.llm_generation_complete:
-            yield {
-                "type": "finish-step",
-                "finishReason": "tool-calls",
-                "usage": self.current_usage.copy(),
-                "isContinued": False
-            }
-            self.current_step_active = False
-            self.tool_completed_in_current_step = False
-            self.need_new_step_for_text = True
-            self.llm_generation_complete = False
     
     async def _process_langgraph_messages(self, messages) -> AsyncGenerator[UIMessageChunk, None]:
         """Process LangGraph messages format to extract tool calls.
@@ -605,7 +606,27 @@ class StreamProcessor:
             # Handle ToolMessage with results
             if hasattr(message, 'tool_call_id') and hasattr(message, 'content'):
                 tool_call_id = message.tool_call_id
-                tool_results_map[tool_call_id] = message.content
+                # Try to parse string back to dict if possible
+                content = message.content
+                if isinstance(content, str):
+                    try:
+                        import json
+                        import ast
+                        # First try JSON parsing (for proper JSON strings)
+                        if content.strip().startswith(('{', '[')):
+                            try:
+                                content = json.loads(content)
+                            except json.JSONDecodeError:
+                                # If JSON parsing fails, try ast.literal_eval for Python repr format
+                                try:
+                                    content = ast.literal_eval(content)
+                                except (ValueError, SyntaxError):
+                                    # If both fail, keep as string
+                                    pass
+                    except Exception:
+                        # If any parsing fails, keep as string
+                        pass
+                tool_results_map[tool_call_id] = content
         
         # Second pass: emit tool events for matched pairs
         for tool_call_id, tool_info in tool_calls_map.items():
