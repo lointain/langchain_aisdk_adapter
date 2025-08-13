@@ -2,7 +2,7 @@
 
 import asyncio
 import uuid
-from typing import AsyncIterable, AsyncGenerator, Optional, Dict, Any, Literal, TypedDict
+from typing import AsyncIterable, AsyncGenerator, Optional, Dict, Any, Literal, TypedDict, Callable, Awaitable
 
 from .models import LangChainStreamInput, UIMessageChunk
 from .stream_processor import StreamProcessor
@@ -28,6 +28,8 @@ class AdapterOptions(TypedDict, total=False):
         emit_start: Whether to emit start events, defaults to True
         emit_finish: Whether to emit finish events, defaults to True
         auto_context: Whether to automatically set up context, defaults to True
+        experimental_transform: Stream transformer function for smoothing output
+        experimental_generateMessageId: Function to generate custom message IDs
     """
     protocol_version: Literal['v4', 'v5']
     auto_events: bool
@@ -35,6 +37,8 @@ class AdapterOptions(TypedDict, total=False):
     emit_start: bool
     emit_finish: bool
     auto_context: bool
+    experimental_transform: Callable[[AsyncIterable[Any]], AsyncIterable[Any]]
+    experimental_generateMessageId: Callable[[], str]
 
 
 class LangChainAdapter:
@@ -142,6 +146,8 @@ class LangChainAdapter:
                 - emit_start: Whether to emit start events (default: True)
                 - emit_finish: Whether to emit finish events (default: True)
                 - auto_context: Whether to automatically set up context (default: True)
+                - experimental_transform: Stream transformer function for smoothing output
+                - experimental_generateMessageId: Function to generate custom message IDs
 
         
         Returns:
@@ -153,8 +159,14 @@ class LangChainAdapter:
         auto_events = opts.get("auto_events", True)
         auto_close = opts.get("auto_close", True)
         auto_context = opts.get("auto_context", True)
+        experimental_transform = opts.get("experimental_transform")
+        experimental_generateMessageId = opts.get("experimental_generateMessageId")
 
-        message_id = message_id or str(uuid.uuid4())
+        # Use custom message ID generator if provided
+        if experimental_generateMessageId:
+            message_id = message_id or experimental_generateMessageId()
+        else:
+            message_id = message_id or str(uuid.uuid4())
         
         # Create stream processor
         processor = StreamProcessor(
@@ -166,7 +178,13 @@ class LangChainAdapter:
         
         # Create the async generator with automatic context management
         async def stream_generator():
-            async for chunk in processor.process_stream(stream):
+            processed_stream = processor.process_stream(stream)
+            
+            # Apply experimental transform if provided
+            if experimental_transform:
+                processed_stream = experimental_transform(processed_stream)
+            
+            async for chunk in processed_stream:
                 yield chunk
         
         # Create wrapped stream with emit methods

@@ -13,6 +13,7 @@ This example demonstrates a complete agent workflow with:
 
 import asyncio
 import os
+import uuid
 from typing import Dict, Any
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
@@ -28,6 +29,83 @@ except ImportError:
     print("Falling back to manual environment variable reading.")
 
 from langchain_aisdk_adapter import LangChainAdapter, DataStreamContext, BaseAICallbackHandler, Message
+
+
+def smooth_stream(chunking='word', delay_in_ms=10):
+    """
+    Create a stream transformer for smoothing text output.
+    
+    This function mimics the AI SDK's smoothStream functionality by buffering
+    and releasing complete words with configurable delays to create a more
+    natural reading experience when streaming text responses.
+    
+    Args:
+        chunking: Controls how text is chunked ('word' or 'line')
+        delay_in_ms: Delay in milliseconds between chunks (default: 10ms)
+        
+    Returns:
+        A transform function that can be used with experimental_transform
+    """
+    import asyncio
+    import re
+    
+    async def transform_stream(stream):
+        buffer = ""
+        
+        async for chunk in stream:
+            if hasattr(chunk, 'get') and chunk.get('type') == 'text':
+                # Handle text chunks
+                text_content = chunk.get('content', '')
+                buffer += text_content
+                
+                # Process buffer based on chunking strategy
+                if chunking == 'word':
+                    # Split on word boundaries
+                    words = re.findall(r'\S+\s*', buffer)
+                    if len(words) > 1:
+                        # Keep last incomplete word in buffer
+                        complete_words = words[:-1]
+                        buffer = words[-1] if words else ""
+                        
+                        for word in complete_words:
+                            yield {'type': 'text', 'content': word}
+                            if delay_in_ms > 0:
+                                await asyncio.sleep(delay_in_ms / 1000.0)
+                elif chunking == 'line':
+                    # Split on line boundaries
+                    lines = buffer.split('\n')
+                    if len(lines) > 1:
+                        # Keep last incomplete line in buffer
+                        complete_lines = lines[:-1]
+                        buffer = lines[-1]
+                        
+                        for line in complete_lines:
+                            yield {'type': 'text', 'content': line + '\n'}
+                            if delay_in_ms > 0:
+                                await asyncio.sleep(delay_in_ms / 1000.0)
+            else:
+                # Pass through non-text chunks immediately
+                yield chunk
+        
+        # Flush remaining buffer
+        if buffer:
+            yield {'type': 'text', 'content': buffer}
+    
+    return transform_stream
+
+
+def generate_uuid() -> str:
+    """
+    Generate a unique UUID for message identification.
+    
+    This function mimics the AI SDK's generateMessageId functionality
+    by creating a unique identifier for each message, which helps with
+    message persistence and tracking.
+    
+    Returns:
+        A unique UUID string
+    """
+    return str(uuid.uuid4())
 
 
 @tool
@@ -168,11 +246,17 @@ async def test_complete_langgraph_agent_workflow():
         agent_stream = agent_executor.astream_events({"messages": messages}, version="v2")
         
         # Convert to AI SDK stream using LangChainAdapter.to_data_stream
+        # with experimental features
         ai_sdk_stream = LangChainAdapter.to_data_stream(
             agent_stream,
             callbacks=callbacks,
             message_id="test-langgraph-message-001",
-            options={"auto_events": True, "protocol_version": "v5"}
+            options={
+                "auto_events": True, 
+                "protocol_version": "v5",
+                "experimental_transform": smooth_stream(chunking='word', delay_in_ms=20),
+                "experimental_generateMessageId": generate_uuid
+            }
         )
         
         # Test DataStreamContext.emit_source_url
