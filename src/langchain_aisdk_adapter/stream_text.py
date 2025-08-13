@@ -106,6 +106,7 @@ def stream_text(
     experimental_generateMessageId: Optional[Callable[[], str]] = None,
     message_id: Optional[str] = None,
     runnable_factory: Optional[Callable[..., Runnable]] = None,
+    protocol_version: str = "v4",
     **options
 ) -> 'StreamTextResult':
     """Stream text from a language model with AI SDK compatible interface.
@@ -128,6 +129,7 @@ def stream_text(
         experimental_transform: Transform function for the stream
         message_id: Optional message ID for tracking
         runnable_factory: Factory function to create custom Runnable objects
+        protocol_version: Protocol version to use ("v4" or "v5"), defaults to "v4"
         **options: Additional options passed to the adapter
     
     Returns:
@@ -235,6 +237,7 @@ def stream_text(
     adapter_options = {
         'experimental_transform': experimental_transform,
         'experimental_generateMessageId': experimental_generateMessageId,
+        'protocol_version': protocol_version,
         **options
     }
     
@@ -268,6 +271,7 @@ def stream_text_response(
     experimental_generateMessageId: Optional[Callable[[], str]] = None,
     message_id: Optional[str] = None,
     runnable_factory: Optional[Callable[..., Runnable]] = None,
+    protocol_version: str = "v4",
     **options
 ) -> DataStreamResponse:
     """Stream text from a language model with FastAPI compatible response.
@@ -291,6 +295,7 @@ def stream_text_response(
         experimental_generateMessageId: Function to generate message IDs
         message_id: Optional message ID
         runnable_factory: Factory function to create custom runnable
+        protocol_version: Protocol version to use ("v4" or "v5"), defaults to "v4"
         **options: Additional options
     
     Returns:
@@ -330,6 +335,7 @@ def stream_text_response(
         experimental_generateMessageId=experimental_generateMessageId,
         message_id=message_id,
         runnable_factory=runnable_factory,
+        protocol_version=protocol_version,
         **options
     )
     

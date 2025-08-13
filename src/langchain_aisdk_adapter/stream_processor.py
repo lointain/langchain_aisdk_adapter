@@ -392,23 +392,44 @@ class StreamProcessor:
     
     def _serialize_tool_output(self, output: Any) -> Any:
         """Serialize tool output to ensure JSON compatibility."""
+        import json
+        
         if hasattr(output, 'content'):
             # Handle LangChain ToolMessage or similar objects
-            return output.content
+            result = output.content
+            # Check if content is already a JSON string
+            if isinstance(result, str):
+                try:
+                    parsed = json.loads(result)
+                    return parsed
+                except json.JSONDecodeError:
+                    return result
+            return result
         elif hasattr(output, 'dict'):
             # Handle Pydantic models
-            return output.dict()
+            result = output.dict()
+            return result
         elif hasattr(output, '__dict__'):
             # Handle other objects with __dict__
-            return {k: v for k, v in output.__dict__.items() if not k.startswith('_')}
+            result = {k: v for k, v in output.__dict__.items() if not k.startswith('_')}
+            return result
         elif isinstance(output, (list, tuple)):
             # Handle lists/tuples recursively
-            return [self._serialize_tool_output(item) for item in output]
+            result = [self._serialize_tool_output(item) for item in output]
+            return result
         elif isinstance(output, dict):
             # Handle dictionaries recursively
-            return {k: self._serialize_tool_output(v) for k, v in output.items()}
+            result = {k: self._serialize_tool_output(v) for k, v in output.items()}
+            return result
+        elif isinstance(output, str):
+            # Check if string is actually JSON
+            try:
+                parsed = json.loads(output)
+                return parsed
+            except json.JSONDecodeError:
+                return output
         else:
-            # Return as-is for basic types (str, int, float, bool, None)
+            # Return as-is for basic types (int, float, bool, None)
             return output
     
     async def _handle_tool_end(self, event: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
@@ -438,20 +459,26 @@ class StreamProcessor:
             # This is a LangGraph tool event with complete information
             tool_call_id = f"tool_{run_id}"
             
+            print(f"[DEBUG] _handle_tool_end - Raw tool_output: type={type(tool_output)}, value_preview={str(tool_output)[:200]}...")
+            
             # Update tool call info with output
             if tool_call_id in self.tool_calls:
                 # Serialize the output to ensure JSON compatibility
                 serialized_output = self._serialize_tool_output(tool_output)
                 
+                print(f"[DEBUG] _handle_tool_end - After serialization: type={type(serialized_output)}, value_preview={str(serialized_output)[:200]}...")
+                
                 self.tool_calls[tool_call_id]["outputs"] = serialized_output
                 self.tool_calls[tool_call_id]["state"] = "result"
                 
                 # Emit tool output available
-                yield {
+                event_data = {
                     "type": "tool-output-available",
                     "toolCallId": tool_call_id,
                     "output": serialized_output
                 }
+                print(f"[DEBUG] _handle_tool_end - Emitting event: output type={type(event_data['output'])}, value_preview={str(event_data['output'])[:200]}...")
+                yield event_data
                 
                 # Mark that we have completed a tool call in this step
                 self.tool_completed_in_current_step = True
