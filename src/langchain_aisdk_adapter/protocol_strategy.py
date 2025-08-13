@@ -52,6 +52,10 @@ class AISDKv4Strategy(ProtocolStrategy):
     
     def format_chunk(self, chunk: UIMessageChunk) -> str:
         """Format chunk to AI SDK v4 format."""
+        # Handle string chunks (should not happen, but defensive programming)
+        if isinstance(chunk, str):
+            return chunk
+        
         chunk_type = chunk.get("type")
         
         if chunk_type == "text-delta":
@@ -199,6 +203,10 @@ class AISDKv5Strategy(ProtocolStrategy):
     
     def format_chunk(self, chunk: UIMessageChunk) -> str:
         """Format chunk to AI SDK v5 SSE format."""
+        # Handle string chunks (should not happen, but defensive programming)
+        if isinstance(chunk, str):
+            return chunk
+        
         # Convert chunk to JSON string
         if hasattr(chunk, 'dict'):
             chunk_dict = chunk.dict()

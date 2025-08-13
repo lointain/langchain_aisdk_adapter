@@ -44,8 +44,8 @@ class StreamTextResult:
     def to_data_stream_response(self) -> 'DataStreamResponse':
         """Convert to DataStreamResponse for FastAPI streaming."""
         return DataStreamResponse(
-            data_stream=self._data_stream_with_emitters.data_stream,
-            emitters=self._data_stream_with_emitters.emitters
+            stream=self._data_stream_with_emitters,
+            protocol_version="v4"
         )
 
 
