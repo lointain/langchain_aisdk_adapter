@@ -26,11 +26,25 @@ class TextUIPart(BaseModel):
     """Text UI part for displaying text content"""
     type: Literal['text'] = 'text'
     text: str
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization, excluding internal fields"""
+        return {
+            "type": self.type,
+            "text": self.text
+        }
 
 class ReasoningUIPart(BaseModel):
     """Reasoning UI part for displaying AI reasoning process"""
     type: Literal['reasoning'] = 'reasoning'
     reasoning: str
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization, excluding internal fields"""
+        return {
+            "type": self.type,
+            "reasoning": self.reasoning
+        }
 
 class ToolInvocation(BaseModel):
     """Tool invocation object containing call/result information"""
@@ -40,35 +54,80 @@ class ToolInvocation(BaseModel):
     toolName: str
     args: Dict[str, Any]
     result: Optional[Any] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization, excluding internal fields"""
+        result = {
+            "state": self.state,
+            "toolCallId": self.toolCallId,
+            "toolName": self.toolName,
+            "args": self.args
+        }
+        if self.step is not None:
+            result["step"] = self.step
+        if self.result is not None:
+            result["result"] = self.result
+        return result
 
 class ToolInvocationUIPart(BaseModel):
     """Tool invocation UI part for displaying tool calls"""
     type: Literal['tool-invocation'] = 'tool-invocation'
     toolInvocation: ToolInvocation
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization, excluding internal fields"""
+        return {
+            "type": self.type,
+            "toolInvocation": self.toolInvocation.to_dict()
+        }
 
 class SourceUIPart(BaseModel):
     """Source UI part for displaying referenced sources"""
     type: Literal['source'] = 'source'
     source: Dict[str, Any]  # LanguageModelV1Source
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization, excluding internal fields"""
+        return {
+            "type": self.type,
+            "source": self.source
+        }
 
 class FileUIPart(BaseModel):
     """File UI part for displaying file attachments"""
     type: Literal['file'] = 'file'
     url: str
     mediaType: str
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization, excluding internal fields"""
+        return {
+            "type": self.type,
+            "url": self.url,
+            "mediaType": self.mediaType
+        }
 
 class StepStartUIPart(BaseModel):
     """Step start UI part for marking workflow step beginning"""
     type: Literal['step-start'] = 'step-start'
-
-class StepStartUIPart(BaseModel):
-    """Step start UI part for marking workflow step beginning"""
-    type: Literal['step-start'] = 'step-start'
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization, excluding internal fields"""
+        return {
+            "type": self.type
+        }
 
 class ErrorUIPart(BaseModel):
     """Error UI part for displaying error information"""
     type: Literal['error'] = 'error'
     error: str
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization, excluding internal fields"""
+        return {
+            "type": self.type,
+            "error": self.error
+        }
 
 # UIPart union type
 UIPart = Union[
@@ -81,12 +140,40 @@ UIPart = Union[
     ErrorUIPart,
 ]
 
+
+def serialize_ui_part(part: UIPart) -> Dict[str, Any]:
+    """Serialize a UIPart to dictionary for JSON serialization.
+    
+    This function calls the appropriate to_dict method for each UIPart type,
+    ensuring clean JSON serialization without internal Pydantic fields.
+    
+    Args:
+        part: The UIPart instance to serialize
+        
+    Returns:
+        Dictionary representation suitable for JSON serialization
+    """
+    if hasattr(part, 'to_dict'):
+        return part.to_dict()
+    else:
+        # Fallback for any UIPart that doesn't have to_dict method
+        return part.model_dump(exclude_unset=True, exclude_none=True)
+
 # Attachment definition
 class Attachment(BaseModel):
     """File attachment information"""
     name: Optional[str] = None
     contentType: Optional[str] = None
     url: str
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization, excluding internal fields"""
+        result = {"url": self.url}
+        if self.name is not None:
+            result["name"] = self.name
+        if self.contentType is not None:
+            result["contentType"] = self.contentType
+        return result
 
 # Message definition
 class Message(BaseModel):
@@ -98,6 +185,41 @@ class Message(BaseModel):
     annotations: Optional[List[JSONValue]] = None
     parts: List[UIPart] = Field(default_factory=list)
     experimental_attachments: Optional[List[Attachment]] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization, excluding internal fields"""
+        result = {
+            "id": self.id,
+            "createdAt": self.createdAt.isoformat(),
+            "content": self.content,
+            "role": self.role,
+            "parts": [serialize_ui_part(part) for part in self.parts]
+        }
+        if self.annotations is not None:
+            result["annotations"] = self.annotations
+        if self.experimental_attachments is not None:
+            result["experimental_attachments"] = [att.to_dict() for att in self.experimental_attachments]
+        return result
+    
+    def to_json(self, **kwargs) -> str:
+        """Convert to JSON string for easy serialization to database
+        
+        Args:
+            **kwargs: Additional arguments passed to json.dumps (e.g., indent, ensure_ascii)
+            
+        Returns:
+            JSON string representation of the message
+        """
+        import json
+        return json.dumps(self.to_dict(), **kwargs)
+    
+    def get_serialized_parts(self) -> List[Dict[str, Any]]:
+        """Get serialized parts as list of dictionaries for database storage
+        
+        Returns:
+            List of serialized UIPart dictionaries
+        """
+        return [serialize_ui_part(part) for part in self.parts]
 
 class StreamCallbacks:
     """Configuration options and helper callback methods for stream lifecycle events.

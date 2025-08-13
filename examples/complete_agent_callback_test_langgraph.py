@@ -29,69 +29,7 @@ except ImportError:
     print("Falling back to manual environment variable reading.")
 
 from langchain_aisdk_adapter import LangChainAdapter, DataStreamContext, BaseAICallbackHandler, Message
-
-
-def smooth_stream(chunking='word', delay_in_ms=10):
-    """
-    Create a stream transformer for smoothing text output.
-    
-    This function mimics the AI SDK's smoothStream functionality by buffering
-    and releasing complete words with configurable delays to create a more
-    natural reading experience when streaming text responses.
-    
-    Args:
-        chunking: Controls how text is chunked ('word' or 'line')
-        delay_in_ms: Delay in milliseconds between chunks (default: 10ms)
-        
-    Returns:
-        A transform function that can be used with experimental_transform
-    """
-    import asyncio
-    import re
-    
-    async def transform_stream(stream):
-        buffer = ""
-        
-        async for chunk in stream:
-            if hasattr(chunk, 'get') and chunk.get('type') == 'text':
-                # Handle text chunks
-                text_content = chunk.get('content', '')
-                buffer += text_content
-                
-                # Process buffer based on chunking strategy
-                if chunking == 'word':
-                    # Split on word boundaries
-                    words = re.findall(r'\S+\s*', buffer)
-                    if len(words) > 1:
-                        # Keep last incomplete word in buffer
-                        complete_words = words[:-1]
-                        buffer = words[-1] if words else ""
-                        
-                        for word in complete_words:
-                            yield {'type': 'text', 'content': word}
-                            if delay_in_ms > 0:
-                                await asyncio.sleep(delay_in_ms / 1000.0)
-                elif chunking == 'line':
-                    # Split on line boundaries
-                    lines = buffer.split('\n')
-                    if len(lines) > 1:
-                        # Keep last incomplete line in buffer
-                        complete_lines = lines[:-1]
-                        buffer = lines[-1]
-                        
-                        for line in complete_lines:
-                            yield {'type': 'text', 'content': line + '\n'}
-                            if delay_in_ms > 0:
-                                await asyncio.sleep(delay_in_ms / 1000.0)
-            else:
-                # Pass through non-text chunks immediately
-                yield chunk
-        
-        # Flush remaining buffer
-        if buffer:
-            yield {'type': 'text', 'content': buffer}
-    
-    return transform_stream
+from langchain_aisdk_adapter.smooth_stream import smooth_stream
 
 
 def generate_uuid() -> str:

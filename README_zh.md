@@ -19,6 +19,7 @@
 - **🌊 平滑流式传输**：内置 `smooth_stream` 功能，提供增强的文本输出平滑处理
 - **🔗 扩展回调系统**：全面的回调系统，支持 `onChunk`、`onError`、`onStepFinish`、`onFinish` 和 `onAbort`
 - **🧪 实验性功能**：支持 `experimental_transform` 和 `experimental_generateMessageId`
+- **📤 流式文本 API**：类似 AI SDK streamText 的高级 `stream_text` 方法，简化流式处理
 
 ## 已知限制
 
@@ -53,6 +54,98 @@ data_stream = LangChainAdapter.to_data_stream(stream)
 # 遍历流
 async for chunk in data_stream:
     print(chunk)
+```
+
+### 流式文本 API
+
+`stream_text` 函数提供了类似 AI SDK streamText 的高级接口，简化了 LangChain 模型的流式处理：
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_aisdk_adapter import stream_text, stream_text_response
+
+# 基本用法
+model = ChatOpenAI()
+messages = [HumanMessage(content="你好，世界！")]
+
+result = await stream_text(
+    model=model,
+    messages=messages
+)
+
+# 遍历流
+async for chunk in result:
+    print(f"块: {chunk}")
+
+# 转换为 FastAPI 响应
+response = result.to_data_stream_response()
+
+# 或使用便捷函数
+response = await stream_text_response(
+    model=model,
+    messages=messages
+)
+
+# 带系统提示和回调
+result = await stream_text(
+    model=model,
+    system="你是一个有用的助手。",
+    messages=messages,
+    on_chunk=lambda chunk: print(f"块: {chunk}"),
+    on_finish=lambda message, options: print(f"完成: {message}"),
+    on_error=lambda error: print(f"错误: {error}")
+)
+
+# 带工具和实验性功能
+from langchain_community.tools import DuckDuckGoSearchRun
+
+tools = [DuckDuckGoSearchRun()]
+
+result = await stream_text(
+    model=model,
+    messages=messages,
+    tools=tools,
+    experimental_transform=smooth_stream(delay_in_ms=50),
+    experimental_generateMessageId=lambda: f"msg-{uuid.uuid4()}"
+)
+
+# 使用自定义可运行工厂（用于 LangGraph 代理）
+def create_langgraph_agent(model, system, messages, tools, **kwargs):
+    """创建 LangGraph ReAct 代理"""
+    from langgraph.prebuilt import create_react_agent
+    
+    # 使用工具创建 ReAct 代理
+    agent = create_react_agent(model, tools)
+    return agent
+
+result = await stream_text(
+    messages=messages,
+    tools=tools,
+    runnable_factory=create_langgraph_agent,
+    on_step_finish=lambda step: print(f"步骤完成: {step}")
+)
+```
+
+#### StreamTextResult
+
+`stream_text` 函数返回一个 `StreamTextResult` 对象，它：
+- 可异步迭代处理块
+- 可转换为 `DataStreamResponse` 用于 FastAPI
+- 提供对底层数据流的访问
+
+```python
+result = await stream_text(model=model, messages=messages)
+
+# 方法 1：直接迭代
+async for chunk in result:
+    print(chunk)
+
+# 方法 2：转换为 FastAPI 响应
+fastapi_response = result.to_data_stream_response(
+    headers={"Custom-Header": "value"},
+    status_code=200
+)
 ```
 
 ### FastAPI 集成
@@ -169,6 +262,72 @@ options = {
 ```
 
 ## 高级功能
+
+### 流式文本 API
+
+`stream_text` 方法提供类似 AI SDK streamText 的高级接口，简化 LangChain 模型的流式处理：
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_aisdk_adapter import LangChainAdapter
+
+# 基本用法
+model = ChatOpenAI()
+messages = [HumanMessage(content="你好，世界！")]
+
+response = await LangChainAdapter.stream_text(
+    model=model,
+    messages=messages
+)
+
+# 带系统提示和回调
+response = await LangChainAdapter.stream_text(
+    model=model,
+    system="你是一个有用的助手。",
+    messages=messages,
+    on_chunk=lambda chunk: print(f"块: {chunk}"),
+    on_finish=lambda result: print(f"完成: {result}"),
+    on_error=lambda error: print(f"错误: {error}")
+)
+
+# 带工具和实验性功能
+from langchain_community.tools import DuckDuckGoSearchRun
+
+tools = [DuckDuckGoSearchRun()]
+
+response = await LangChainAdapter.stream_text(
+    model=model,
+    messages=messages,
+    tools=tools,
+    experimental_active_tools=["duckduckgo_search"],
+    experimental_transform=LangChainAdapter.smooth_stream(delay_in_ms=50),
+    experimental_generate_message_id=lambda: f"msg-{uuid.uuid4()}"
+)
+
+# 使用自定义可运行工厂
+def create_agent_runnable(model, system, messages, tools, context, **kwargs):
+    """创建自定义可运行对象（例如，ReAct 代理、LangGraph 代理）"""
+    from langchain.agents import create_react_agent, AgentExecutor
+    from langchain import hub
+    
+    # 从 hub 获取 ReAct 提示
+    prompt = hub.pull("hwchase17/react")
+    
+    # 创建代理和执行器
+    agent = create_react_agent(model, tools, prompt)
+    agent_executor = AgentExecutor(agent=agent, tools=tools)
+    
+    return agent_executor
+
+response = await LangChainAdapter.stream_text(
+    model=model,
+    messages=messages,
+    tools=tools,
+    runnable_factory=create_agent_runnable,
+    on_step_finish=lambda step: print(f"步骤完成: {step}")
+)
+```
 
 ### 平滑流式传输
 

@@ -16,6 +16,12 @@ from .langchain_adapter import (
     AdapterOptions
 )
 
+# Optional modules - can be imported separately
+from . import stream_text
+from . import smooth_stream
+from .stream_text import stream_text as stream_text_func, stream_text_response
+from .smooth_stream import smooth_stream as smooth_stream_func, create_smooth_text_stream
+
 from .context import DataStreamContext
 from .lifecycle import ContextLifecycleManager
 from .callbacks import (
@@ -32,6 +38,7 @@ from .callbacks import (
     ErrorUIPart,
     Attachment,
     LanguageModelUsage,
+    serialize_ui_part,
 )
 from .models import (
     LangChainAIMessageChunk,
@@ -75,6 +82,15 @@ __all__ = [
     "LangChainAdapter",
     "AdapterOptions",
     
+    # Optional modules
+    "stream_text",
+    "smooth_stream",
+    "stream_text_func",
+    "stream_text_response",
+    "stream_text_response_func",
+    "smooth_stream_func",
+    "create_smooth_text_stream",
+    
     # Core processing classes
     "MessageBuilder",
     "ProtocolGenerator",
@@ -113,6 +129,7 @@ __all__ = [
     "StepStartUIPart",
     "Attachment",
     "LanguageModelUsage",
+    "serialize_ui_part",
     
     # LangChain types
     "LangChainAIMessageChunk",

@@ -1,0 +1,56 @@
+[
+  {
+    "type": "source",
+    "source": {
+      "url": "https://example.com/stream-text-docs",
+      "description": "Stream Text with LangGraph documentation"
+    }
+  },
+  {
+    "type": "step-start"
+  },
+  {
+    "type": "tool-invocation",
+    "toolInvocation": {
+      "state": "result",
+      "toolCallId": "tool_bbeb21a1-2d21-495f-a970-b9e89f1d6df7",
+      "toolName": "get_employee_age",
+      "args": {
+        "employee_id": "EMP002"
+      },
+      "step": 0,
+      "result": "Employee Bob Smith (ID: EMP002) is 35 years old."
+    }
+  },
+  {
+    "type": "tool-invocation",
+    "toolInvocation": {
+      "state": "result",
+      "toolCallId": "tool_63c9e671-c87a-4c5b-a813-05b844290203",
+      "toolName": "get_employee_department",
+      "args": {
+        "employee_id": "EMP002"
+      },
+      "step": 1,
+      "result": "Employee EMP002 works in the Marketing department."
+    }
+  },
+  {
+    "type": "tool-invocation",
+    "toolInvocation": {
+      "state": "result",
+      "toolCallId": "tool_8dfd679f-c88e-478d-b3c2-6921b5d887a7",
+      "toolName": "calculate_salary_bonus",
+      "args": {
+        "base_salary": 75000,
+        "bonus_percentage": 12
+      },
+      "step": 2,
+      "result": "Base salary: $75,000.00, Bonus: $9,000.00 (12.0%), Total: $84,000.00"
+    }
+  },
+  {
+    "type": "text",
+    "text": "Here's the information for employee EMP002 (Bob Smith):\n\n- **Age:** 35 years old\n- **Department:** Marketing\n- **Salary Details:**\n  - Base Salary: $75,000.00\n  - Bonus: $9,000.00 (12%)\n  - **Total Salary:** $84,000.00"
+  }
+]

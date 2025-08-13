@@ -3,7 +3,7 @@
 import asyncio
 import uuid
 import re
-from typing import AsyncIterable, AsyncGenerator, Optional, Dict, Any, Literal, TypedDict, Callable, Awaitable, Union
+from typing import AsyncIterable, AsyncGenerator, Optional, Dict, Any, Literal, TypedDict, Callable, Awaitable, Union, List
 
 from .models import LangChainStreamInput, UIMessageChunk
 from .stream_processor import StreamProcessor
@@ -11,6 +11,18 @@ from .data_stream import DataStreamWithEmitters, DataStreamResponse, DataStreamW
 from .callbacks import BaseAICallbackHandler
 from .context import DataStreamContext
 from .lifecycle import ContextLifecycleManager
+
+try:
+    from langchain_core.language_models import BaseLanguageModel
+    from langchain_core.messages import BaseMessage
+    from langchain_core.tools import BaseTool
+    from langchain_core.runnables import Runnable
+except ImportError:
+    # Fallback for when LangChain is not available
+    BaseLanguageModel = None
+    BaseMessage = None
+    BaseTool = None
+    Runnable = None
 
 try:
     from fastapi.responses import StreamingResponse
@@ -118,11 +130,11 @@ class LangChainAdapter:
         if headers:
             protocol_headers.update(headers)
         
-        from fastapi.responses import StreamingResponse
-        return StreamingResponse(
-            content=stream_generator(),
-            headers=protocol_headers,
-            status_code=status
+        return DataStreamResponse(
+            stream=stream_generator(),
+            protocol_version=protocol_version,
+            headers=headers,
+            status=status
         )
     
 
@@ -272,166 +284,3 @@ class LangChainAdapter:
         # Write to existing stream
         async for chunk in data_stream:
             await data_stream_writer.write(chunk)
-    
-    @staticmethod
-    def smooth_stream(
-        stream: AsyncIterable[str],
-        delay_in_ms: int = 15,
-        chunking: Union[Literal['word', 'line'], re.Pattern, Callable[[str], list[str]]] = 'word'
-    ) -> AsyncIterable[str]:
-        """Create a smooth stream transformer that chunks and delays text output.
-        
-        This method implements AI SDK's smoothStream functionality for creating
-        smoother text streaming experiences by controlling the rate and chunking
-        of text output.
-        
-        Based on AI SDK smoothStream:
-        https://ai-sdk.dev/docs/reference/ai-sdk-core/smooth-stream
-        
-        Args:
-            stream: Input async iterable of text chunks
-            delay_in_ms: Delay between chunks in milliseconds (default: 15ms)
-            chunking: Chunking strategy:
-                - 'word': Split by whitespace (default)
-                - 'line': Split by line breaks
-                - re.Pattern: Split using custom regex pattern
-                - Callable: Custom chunking function
-        
-        Returns:
-            AsyncIterable[str]: Smoothed stream with controlled chunking and timing
-        
-        Example:
-            ```python
-            # Basic word-based smoothing
-            smooth = LangChainAdapter.smooth_stream(text_stream)
-            
-            # Custom delay and line-based chunking
-            smooth = LangChainAdapter.smooth_stream(
-                text_stream, 
-                delay_in_ms=25, 
-                chunking='line'
-            )
-            
-            # Custom regex chunking (e.g., for Chinese text)
-            import re
-            chinese_pattern = re.compile(r'[\u4e00-\u9fff]+|[^\u4e00-\u9fff]+')
-            smooth = LangChainAdapter.smooth_stream(
-                text_stream,
-                chunking=chinese_pattern
-            )
-            ```
-        """
-        return _SmoothStreamTransformer(stream, delay_in_ms, chunking)
-
-
-class _SmoothStreamTransformer:
-    """Internal transformer class for smooth streaming functionality.
-    
-    This class implements the core logic for AI SDK's smoothStream,
-    providing controlled chunking and timing for text streams.
-    """
-    
-    def __init__(
-        self,
-        stream: AsyncIterable[str],
-        delay_in_ms: int,
-        chunking: Union[Literal['word', 'line'], re.Pattern, Callable[[str], list[str]]]
-    ):
-        self.stream = stream
-        self.delay_in_ms = delay_in_ms
-        self.chunking = chunking
-        self._buffer = ""
-    
-    def __aiter__(self):
-        return self._transform()
-    
-    async def _transform(self) -> AsyncGenerator[str, None]:
-        """Transform the input stream with smooth chunking and delays."""
-        try:
-            async for chunk in self.stream:
-                if not chunk:
-                    continue
-                
-                self._buffer += chunk
-                
-                # Process complete chunks from buffer
-                chunks = self._chunk_text(self._buffer)
-                
-                # Keep the last incomplete chunk in buffer if needed
-                if chunks:
-                    # Yield all but the last chunk (which might be incomplete)
-                    for i, text_chunk in enumerate(chunks[:-1]):
-                        if text_chunk.strip():  # Only yield non-empty chunks
-                            yield text_chunk
-                            if self.delay_in_ms > 0:
-                                await asyncio.sleep(self.delay_in_ms / 1000.0)
-                    
-                    # Handle the last chunk
-                    last_chunk = chunks[-1]
-                    if self._is_complete_chunk(last_chunk):
-                        if last_chunk.strip():
-                            yield last_chunk
-                            if self.delay_in_ms > 0:
-                                await asyncio.sleep(self.delay_in_ms / 1000.0)
-                        self._buffer = ""
-                    else:
-                        # Keep incomplete chunk in buffer
-                        self._buffer = last_chunk
-            
-            # Yield any remaining buffer content
-            if self._buffer.strip():
-                yield self._buffer
-                
-        except Exception as e:
-            # Ensure any remaining buffer is yielded on error
-            if self._buffer.strip():
-                yield self._buffer
-            raise e
-    
-    def _chunk_text(self, text: str) -> list[str]:
-        """Chunk text according to the specified chunking strategy."""
-        if not text:
-            return []
-        
-        if callable(self.chunking) and not isinstance(self.chunking, re.Pattern):
-            # Custom chunking function
-            return self.chunking(text)
-        elif isinstance(self.chunking, re.Pattern):
-             # Regex pattern chunking
-             chunks = self.chunking.findall(text)
-             # Filter out empty chunks
-             chunks = [chunk for chunk in chunks if chunk]
-             return chunks if chunks else [text]
-        elif self.chunking == 'line':
-            # Line-based chunking
-            lines = text.split('\n')
-            # Preserve line breaks except for the last line
-            result = []
-            for i, line in enumerate(lines[:-1]):
-                result.append(line + '\n')
-            if lines[-1]:  # Add last line if not empty
-                result.append(lines[-1])
-            return result
-        else:  # Default to 'word' chunking
-            # Word-based chunking (split by whitespace)
-            # Use regex to preserve whitespace
-            chunks = re.findall(r'\S+\s*', text)
-            return chunks if chunks else [text]
-    
-    def _is_complete_chunk(self, chunk: str) -> bool:
-        """Determine if a chunk is complete based on chunking strategy."""
-        if not chunk:
-            return True
-        
-        if callable(self.chunking) and not isinstance(self.chunking, re.Pattern):
-            # For custom functions, assume chunks are complete
-            return True
-        elif isinstance(self.chunking, re.Pattern):
-            # For regex patterns, check if chunk matches the pattern
-            return bool(self.chunking.match(chunk))
-        elif self.chunking == 'line':
-            # Line is complete if it ends with newline or is the final chunk
-            return chunk.endswith('\n')
-        else:  # 'word' chunking
-            # Word is complete if it ends with whitespace
-            return chunk[-1].isspace() if chunk else True

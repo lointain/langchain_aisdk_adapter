@@ -19,6 +19,7 @@ A Python adapter that aims to convert LangChain streaming outputs to AI SDK comp
 - **🌊 Smooth Streaming**: Built-in `smooth_stream` functionality for enhanced text output smoothing
 - **🔗 Extended Callbacks**: Comprehensive callback system with `onChunk`, `onError`, `onStepFinish`, `onFinish`, and `onAbort` support
 - **🧪 Experimental Features**: Support for `experimental_transform` and `experimental_generateMessageId`
+- **📤 Stream Text API**: High-level `stream_text` method similar to AI SDK's streamText for simplified streaming
 
 ## Known Limitations
 
@@ -228,6 +229,98 @@ options = {
 ```
 
 ## Advanced Features
+
+### Stream Text API
+
+The `stream_text` function provides a high-level interface similar to AI SDK's streamText for simplified streaming with LangChain models:
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_aisdk_adapter import stream_text, stream_text_response
+
+# Basic usage with model
+model = ChatOpenAI()
+messages = [HumanMessage(content="Hello, world!")]
+
+result = await stream_text(
+    model=model,
+    messages=messages
+)
+
+# Iterate over the stream
+async for chunk in result:
+    print(f"Chunk: {chunk}")
+
+# Convert to FastAPI response
+response = result.to_data_stream_response()
+
+# Or use the convenience function
+response = await stream_text_response(
+    model=model,
+    messages=messages
+)
+
+# With system prompt and callbacks
+result = await stream_text(
+    model=model,
+    system="You are a helpful assistant.",
+    messages=messages,
+    on_chunk=lambda chunk: print(f"Chunk: {chunk}"),
+    on_finish=lambda message, options: print(f"Finished: {message}"),
+    on_error=lambda error: print(f"Error: {error}")
+)
+
+# With tools and experimental features
+from langchain_community.tools import DuckDuckGoSearchRun
+
+tools = [DuckDuckGoSearchRun()]
+
+result = await stream_text(
+    model=model,
+    messages=messages,
+    tools=tools,
+    experimental_transform=smooth_stream(delay_in_ms=50),
+    experimental_generateMessageId=lambda: f"msg-{uuid.uuid4()}"
+)
+
+# With custom runnable factory (for LangGraph agents)
+def create_langgraph_agent(model, system, messages, tools, **kwargs):
+    """Create a LangGraph ReAct agent"""
+    from langgraph.prebuilt import create_react_agent
+    
+    # Create ReAct agent with tools
+    agent = create_react_agent(model, tools)
+    return agent
+
+result = await stream_text(
+    messages=messages,
+    tools=tools,
+    runnable_factory=create_langgraph_agent,
+    on_step_finish=lambda step: print(f"Step finished: {step}")
+)
+```
+
+#### StreamTextResult
+
+The `stream_text` function returns a `StreamTextResult` object that:
+- Is async iterable for processing chunks
+- Can be converted to `DataStreamResponse` for FastAPI
+- Provides access to the underlying data stream
+
+```python
+result = await stream_text(model=model, messages=messages)
+
+# Method 1: Iterate directly
+async for chunk in result:
+    print(chunk)
+
+# Method 2: Convert to FastAPI response
+fastapi_response = result.to_data_stream_response(
+    headers={"Custom-Header": "value"},
+    status_code=200
+)
+```
 
 ### Smooth Streaming
 
