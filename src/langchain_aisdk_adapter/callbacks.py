@@ -195,31 +195,139 @@ class CallbacksTransformer:
         await self._call_callback(self.callbacks.on_final, self.aggregated_response)
 
 
+# Step information for multi-step operations
+class StepResult(BaseModel):
+    """Result of a completed step in multi-step generation"""
+    stepType: Literal['initial', 'continue', 'tool-call', 'tool-result']
+    text: str
+    toolCalls: List[Dict[str, Any]] = Field(default_factory=list)
+    toolResults: List[Dict[str, Any]] = Field(default_factory=list)
+    finishReason: Optional[Literal['stop', 'length', 'content-filter', 'tool-calls', 'error', 'other', 'unknown']] = None
+    usage: Optional[LanguageModelUsage] = None
+    warnings: Optional[List[str]] = None
+    logprobs: Optional[Dict[str, Any]] = None
+    providerMetadata: Optional[Dict[str, Any]] = None
+
+# Chunk information for streaming
+class TextChunk(BaseModel):
+    """Text chunk from streaming generation"""
+    type: Literal['text-delta'] = 'text-delta'
+    textDelta: str
+
+class ToolCallChunk(BaseModel):
+    """Tool call chunk from streaming generation"""
+    type: Literal['tool-call-delta'] = 'tool-call-delta'
+    toolCallType: Literal['function']
+    toolCallId: str
+    toolName: str
+    argsTextDelta: str
+
+class ToolResultChunk(BaseModel):
+    """Tool result chunk from streaming generation"""
+    type: Literal['tool-result'] = 'tool-result'
+    toolCallId: str
+    toolName: str
+    result: Any
+    isError: bool = False
+
+class FinishChunk(BaseModel):
+    """Finish chunk indicating end of generation"""
+    type: Literal['finish'] = 'finish'
+    finishReason: Literal['stop', 'length', 'content-filter', 'tool-calls', 'error', 'other', 'unknown']
+    usage: Optional[LanguageModelUsage] = None
+    logprobs: Optional[Dict[str, Any]] = None
+
+class ErrorChunk(BaseModel):
+    """Error chunk indicating an error occurred"""
+    type: Literal['error'] = 'error'
+    error: str
+
+# Union type for all chunk types
+StreamChunk = Union[TextChunk, ToolCallChunk, ToolResultChunk, FinishChunk, ErrorChunk]
+
 class BaseAICallbackHandler(ABC):
-    """Abstract base class for AI SDK callbacks with pure hook mode.
+    """Abstract base class for AI SDK callbacks with comprehensive event handling.
 
     This class defines a set of optional, independent hooks that can be implemented
     to observe the lifecycle of an AI SDK stream. Implementations should be
     self-contained and not call super() methods.
+    
+    Based on AI SDK streamText callback interface:
+    https://ai-sdk.dev/docs/reference/ai-sdk-core/stream-text
     """
+
+    async def on_chunk(self, chunk: StreamChunk) -> None:
+        """Called for each chunk in the stream.
+        
+        This callback is invoked for every chunk that is streamed, including:
+        - Text deltas (textDelta)
+        - Tool call deltas (toolCallDelta) 
+        - Tool results (toolResult)
+        - Finish events (finish)
+        - Error events (error)
+        
+        Args:
+            chunk: The stream chunk containing type-specific data
+        """
+        pass
 
     async def on_finish(self, message: Message, options: Dict[str, Any]) -> None:
         """Called when the stream processing is complete.
 
-        This is a pure hook for observation and should not modify the input.
+        This is called when the generation has finished successfully.
+        It provides the final message and metadata including usage statistics.
 
         Args:
-            message: The final, complete Message object.
-            options: A dictionary containing metadata, such as 'usage'.
+            message: The final, complete Message object
+            options: Dictionary containing metadata such as:
+                - usage: Token usage statistics
+                - finishReason: Reason for completion
+                - steps: Array of all steps (for multi-step generations)
+                - warnings: Any warnings from the provider
+                - providerMetadata: Provider-specific metadata
         """
         pass
 
     async def on_error(self, error: Exception) -> None:
         """Called when an unhandled error occurs during stream processing.
 
-        This is a pure hook for logging or error handling.
+        This is called when an error occurs that prevents the stream from
+        completing successfully. The error could be from the model provider,
+        network issues, or other unexpected failures.
 
         Args:
-            error: The exception that was raised.
+            error: The exception that was raised
+        """
+        pass
+    
+    async def on_step_finish(self, step: StepResult) -> None:
+        """Called when a step in multi-step generation is finished.
+        
+        This is called for each completed step in multi-step generations
+        (when using tools or continue functionality). It provides access to
+        intermediate results including tool calls and their results.
+        
+        Args:
+            step: The completed step containing:
+                - stepType: Type of step (initial, continue, tool-call, tool-result)
+                - text: Generated text for this step
+                - toolCalls: Tool calls made in this step
+                - toolResults: Results from tool executions
+                - finishReason: Reason this step finished
+                - usage: Token usage for this step
+        """
+        pass
+    
+    async def on_abort(self, steps: List[StepResult]) -> None:
+        """Called when the stream is aborted via AbortSignal.
+        
+        This is called when the generation is cancelled or aborted before
+        completion (e.g., user clicks stop button). It provides access to
+        any steps that were completed before the abort.
+        
+        Note: on_finish is NOT called when on_abort is called.
+        
+        Args:
+            steps: Array of all completed steps before the abort
         """
         pass

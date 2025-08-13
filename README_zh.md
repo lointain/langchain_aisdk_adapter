@@ -16,6 +16,9 @@
 - **🎯 手动控制**：提供手动事件发射功能
 - **🔧 灵活配置**：可配置协议版本和输出格式
 - **📊 使用跟踪**：基本的令牌使用和性能监控
+- **🌊 平滑流式传输**：内置 `smooth_stream` 功能，提供增强的文本输出平滑处理
+- **🔗 扩展回调系统**：全面的回调系统，支持 `onChunk`、`onError`、`onStepFinish`、`onFinish` 和 `onAbort`
+- **🧪 实验性功能**：支持 `experimental_transform` 和 `experimental_generateMessageId`
 
 ## 已知限制
 
@@ -167,7 +170,103 @@ options = {
 
 ## 高级功能
 
-### 自定义回调
+### 平滑流式传输
+
+`smooth_stream` 方法提供增强的文本输出平滑处理，支持可配置的分块策略和延迟：
+
+```python
+from langchain_aisdk_adapter import LangChainAdapter
+import re
+
+# 基于单词的分块，带延迟
+smooth_transform = LangChainAdapter.smooth_stream(
+    delayInMs=50,
+    chunking='word'
+)
+
+# 基于行的分块
+smooth_transform = LangChainAdapter.smooth_stream(
+    delayInMs=100,
+    chunking='line'
+)
+
+# 自定义正则表达式分块（例如，用于中文文本）
+smooth_transform = LangChainAdapter.smooth_stream(
+    delayInMs=30,
+    chunking=re.compile(r'[\u4e00-\u9fff]+|[a-zA-Z]+|\S')
+)
+
+# 自定义分块函数
+def custom_chunker(text: str) -> list[str]:
+    return text.split('，')
+
+smooth_transform = LangChainAdapter.smooth_stream(
+    delayInMs=75,
+    chunking=custom_chunker
+)
+
+# 与 experimental_transform 一起使用
+data_stream = LangChainAdapter.to_data_stream(
+    stream=langchain_stream,
+    options={
+        "experimental_transform": smooth_transform
+    }
+)
+```
+
+### 扩展回调系统
+
+支持 AI SDK 流式事件的全面回调系统：
+
+```python
+from langchain_aisdk_adapter import BaseAICallbackHandler
+
+class ExtendedCallback(BaseAICallbackHandler):
+    async def on_chunk(self, chunk, **kwargs):
+        """每个流块时调用"""
+        print(f"收到块：{chunk}")
+    
+    async def on_step_finish(self, step_result, **kwargs):
+        """步骤完成时调用"""
+        print(f"步骤完成：{step_result}")
+    
+    async def on_finish(self, message, options, **kwargs):
+        """流式传输完成时调用"""
+        print(f"流完成：{message}")
+    
+    async def on_error(self, error, **kwargs):
+        """发生错误时调用"""
+        print(f"流错误：{error}")
+    
+    async def on_abort(self, **kwargs):
+        """流式传输中止时调用"""
+        print("流已中止")
+
+callbacks = ExtendedCallback()
+data_stream = LangChainAdapter.to_data_stream(
+    stream=langchain_stream,
+    callbacks=callbacks
+)
+```
+
+### 实验性功能
+
+```python
+# 自定义消息 ID 生成
+def generate_custom_id():
+    return f"custom-{uuid.uuid4()}"
+
+# 使用实验性功能
+data_stream = LangChainAdapter.to_data_stream(
+    stream=langchain_stream,
+    options={
+        "experimental_transform": LangChainAdapter.smooth_stream(delayInMs=50),
+        "experimental_generateMessageId": generate_custom_id
+    }
+)
+```
+
+### 自定义回调（传统）
 
 ```python
 from langchain_aisdk_adapter import BaseAICallbackHandler

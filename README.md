@@ -16,6 +16,9 @@ A Python adapter that aims to convert LangChain streaming outputs to AI SDK comp
 - **🎯 Manual Control**: Provides manual event emission capabilities
 - **🔧 Flexible Configuration**: Configurable protocol versions and output formats
 - **📊 Usage Tracking**: Basic token usage and performance monitoring
+- **🌊 Smooth Streaming**: Built-in `smooth_stream` functionality for enhanced text output smoothing
+- **🔗 Extended Callbacks**: Comprehensive callback system with `onChunk`, `onError`, `onStepFinish`, `onFinish`, and `onAbort` support
+- **🧪 Experimental Features**: Support for `experimental_transform` and `experimental_generateMessageId`
 
 ## Known Limitations
 
@@ -226,7 +229,103 @@ options = {
 
 ## Advanced Features
 
-### Custom Callbacks
+### Smooth Streaming
+
+The `smooth_stream` method provides enhanced text output smoothing with configurable chunking strategies and delays:
+
+```python
+from langchain_aisdk_adapter import LangChainAdapter
+import re
+
+# Word-based chunking with delay
+smooth_transform = LangChainAdapter.smooth_stream(
+    delayInMs=50,
+    chunking='word'
+)
+
+# Line-based chunking
+smooth_transform = LangChainAdapter.smooth_stream(
+    delayInMs=100,
+    chunking='line'
+)
+
+# Custom regex chunking (e.g., for Chinese text)
+smooth_transform = LangChainAdapter.smooth_stream(
+    delayInMs=30,
+    chunking=re.compile(r'[\u4e00-\u9fff]+|[a-zA-Z]+|\S')
+)
+
+# Custom chunking function
+def custom_chunker(text: str) -> list[str]:
+    return text.split(',')
+
+smooth_transform = LangChainAdapter.smooth_stream(
+    delayInMs=75,
+    chunking=custom_chunker
+)
+
+# Use with experimental_transform
+data_stream = LangChainAdapter.to_data_stream(
+    stream=langchain_stream,
+    options={
+        "experimental_transform": smooth_transform
+    }
+)
+```
+
+### Extended Callback System
+
+Comprehensive callback system supporting AI SDK's streaming events:
+
+```python
+from langchain_aisdk_adapter import BaseAICallbackHandler
+
+class ExtendedCallback(BaseAICallbackHandler):
+    async def on_chunk(self, chunk, **kwargs):
+        """Called for each chunk in the stream"""
+        print(f"Chunk received: {chunk}")
+    
+    async def on_step_finish(self, step_result, **kwargs):
+        """Called when a step finishes"""
+        print(f"Step finished: {step_result}")
+    
+    async def on_finish(self, message, options, **kwargs):
+        """Called when streaming finishes"""
+        print(f"Stream finished: {message}")
+    
+    async def on_error(self, error, **kwargs):
+        """Called when an error occurs"""
+        print(f"Stream error: {error}")
+    
+    async def on_abort(self, **kwargs):
+        """Called when streaming is aborted"""
+        print("Stream aborted")
+
+callbacks = ExtendedCallback()
+data_stream = LangChainAdapter.to_data_stream(
+    stream=langchain_stream,
+    callbacks=callbacks
+)
+```
+
+### Experimental Features
+
+```python
+# Custom message ID generation
+def generate_custom_id():
+    return f"custom-{uuid.uuid4()}"
+
+# Use experimental features
+data_stream = LangChainAdapter.to_data_stream(
+    stream=langchain_stream,
+    options={
+        "experimental_transform": LangChainAdapter.smooth_stream(delayInMs=50),
+        "experimental_generateMessageId": generate_custom_id
+    }
+)
+```
+
+### Custom Callbacks (Legacy)
 
 ```python
 from langchain_aisdk_adapter import BaseAICallbackHandler
