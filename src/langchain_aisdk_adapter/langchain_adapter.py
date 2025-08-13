@@ -1,6 +1,7 @@
 """LangChain to AI SDK adapter providing core conversion methods."""
 
 import asyncio
+import logging
 import uuid
 import re
 from typing import AsyncIterable, AsyncGenerator, Optional, Dict, Any, Literal, TypedDict, Callable, Awaitable, Union, List
@@ -191,14 +192,19 @@ class LangChainAdapter:
         
         # Create the async generator with automatic context management
         async def stream_generator():
-            processed_stream = processor.process_stream(stream)
-            
-            # Apply experimental transform if provided
-            if experimental_transform:
-                processed_stream = experimental_transform(processed_stream)
-            
-            async for chunk in processed_stream:
-                yield chunk
+            try:
+                processed_stream = processor.process_stream(stream)
+                
+                # Apply experimental transform if provided
+                if experimental_transform:
+                    processed_stream = experimental_transform(processed_stream)
+                
+                async for chunk in processed_stream:
+                    yield chunk
+            except GeneratorExit:
+                # Generator is being closed, log for debugging and re-raise to ensure proper cleanup
+                logging.debug(f"LangChainAdapter.stream_generator: Generator exit for message {message_id}")
+                raise
         
         # Create wrapped stream with emit methods
         data_stream = DataStreamWithEmitters(

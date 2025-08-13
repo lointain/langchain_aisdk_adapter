@@ -1,6 +1,7 @@
 """Stream processor for converting LangChain events to AI SDK format."""
 
 import asyncio
+import logging
 import uuid
 from typing import AsyncGenerator, AsyncIterable, Dict, Any, Optional, Callable
 
@@ -98,6 +99,10 @@ class StreamProcessor:
                 await self.message_builder.add_chunk(finish_chunk)
                 yield finish_chunk
                 
+        except GeneratorExit:
+            # Generator is being closed, log for debugging and re-raise to ensure proper cleanup
+            logging.debug(f"StreamProcessor.process_stream: Generator exit for message {self.message_id}")
+            raise
         except Exception as e:
             if isinstance(active_callbacks, BaseAICallbackHandler):
                 await active_callbacks.on_error(e)
@@ -130,6 +135,10 @@ class StreamProcessor:
                     # Skip text processing here to avoid duplication with event stream
                     # The text content will be processed through on_chat_model_stream events
                     continue
+        except GeneratorExit:
+            # Generator is being closed, log for debugging and re-raise to ensure proper cleanup
+            logging.debug(f"StreamProcessor._process_langchain_events: Generator exit for message {self.message_id}")
+            raise
         except Exception as e:
             # Re-raise the exception to be handled by the caller
             raise e
@@ -211,41 +220,46 @@ class StreamProcessor:
     async def _handle_stream_event(self, event: LangChainStreamEvent) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle specific LangChain stream events."""
         
-        event_type = event["event"]
-        data = event.get("data", {})
-        
-        # Handle chat model events
-        if event_type == "on_chat_model_start":
-            async for chunk in self._handle_chat_model_start(data):
-                yield chunk
-        elif event_type == "on_chat_model_stream":
-            chunk_data = data.get("chunk")
-            if chunk_data:
-                text = self._extract_text_from_chunk(chunk_data)
-                if text:
-                    # LangChain chunks are incremental, use them directly as delta
-                    self._accumulated_text += text
-                    async for ui_chunk in self._handle_incremental_text(text):
-                        yield ui_chunk
-        elif event_type == "on_chat_model_end":
-            async for chunk in self._handle_chat_model_end(data):
-                yield chunk
-        
-        # Handle chain events that might contain tool information
-        elif event_type == "on_chain_stream":
-            async for chunk in self._handle_chain_stream(data):
-                yield chunk
-        elif event_type == "on_chain_end":
-            async for chunk in self._handle_chain_end(data):
-                yield chunk
-        
-        # Handle tool events (direct tool calls)
-        elif event_type == "on_tool_start":
-            async for chunk in self._handle_tool_start(event):
-                yield chunk
-        elif event_type == "on_tool_end":
-            async for chunk in self._handle_tool_end(event):
-                yield chunk
+        try:
+            event_type = event["event"]
+            data = event.get("data", {})
+            
+            # Handle chat model events
+            if event_type == "on_chat_model_start":
+                async for chunk in self._handle_chat_model_start(data):
+                    yield chunk
+            elif event_type == "on_chat_model_stream":
+                chunk_data = data.get("chunk")
+                if chunk_data:
+                    text = self._extract_text_from_chunk(chunk_data)
+                    if text:
+                        # LangChain chunks are incremental, use them directly as delta
+                        self._accumulated_text += text
+                        async for ui_chunk in self._handle_incremental_text(text):
+                            yield ui_chunk
+            elif event_type == "on_chat_model_end":
+                async for chunk in self._handle_chat_model_end(data):
+                    yield chunk
+            
+            # Handle chain events that might contain tool information
+            elif event_type == "on_chain_stream":
+                async for chunk in self._handle_chain_stream(data):
+                    yield chunk
+            elif event_type == "on_chain_end":
+                async for chunk in self._handle_chain_end(data):
+                    yield chunk
+            
+            # Handle tool events (direct tool calls)
+            elif event_type == "on_tool_start":
+                async for chunk in self._handle_tool_start(event):
+                    yield chunk
+            elif event_type == "on_tool_end":
+                async for chunk in self._handle_tool_end(event):
+                    yield chunk
+        except GeneratorExit:
+            # Generator is being closed, log for debugging and re-raise to ensure proper cleanup
+            logging.debug(f"StreamProcessor._handle_stream_event: Generator exit for message {self.message_id}")
+            raise
     
     async def _handle_chat_model_start(self, data: Dict[str, Any]) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle chat model start event."""
@@ -644,16 +658,21 @@ class StreamProcessor:
     
     async def _handle_incremental_text(self, text: str) -> AsyncGenerator[UIMessageChunk, None]:
         """Handle incremental text content using unified protocol generator."""
-        if not text:
-            return
-        
-        # Start text if not already started
-        if not self.has_text_started:
-            yield ProtocolGenerator.create_text_start(self.text_id, self.protocol_version)
-            self.has_text_started = True
-        
-        # Send text delta
-        yield ProtocolGenerator.create_text_delta(self.text_id, text, self.protocol_version)
+        try:
+            if not text:
+                return
+            
+            # Start text if not already started
+            if not self.has_text_started:
+                yield ProtocolGenerator.create_text_start(self.text_id, self.protocol_version)
+                self.has_text_started = True
+            
+            # Send text delta
+            yield ProtocolGenerator.create_text_delta(self.text_id, text, self.protocol_version)
+        except GeneratorExit:
+            # Generator is being closed, log for debugging and re-raise to ensure proper cleanup
+            logging.debug(f"StreamProcessor._handle_incremental_text: Generator exit for message {self.message_id}")
+            raise
     
     def _extract_text_from_chunk(self, chunk: LangChainAIMessageChunk) -> str:
         """Extract text content from LangChain AI message chunk."""

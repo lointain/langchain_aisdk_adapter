@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import uuid
 from typing import AsyncGenerator, Dict, Any, Optional, List
 
@@ -412,6 +413,10 @@ class DataStreamWithEmitters:
             try:
                 async for chunk in self._stream_generator:
                     await merged_queue.put(("auto", chunk))
+            except GeneratorExit:
+                # Generator is being closed, log for debugging and re-raise to ensure proper cleanup
+                logging.debug(f"DataStreamWithEmitters.auto_producer: Generator exit for stream {id(self)}")
+                raise
             except Exception as e:
                 await merged_queue.put(("error", e))
             finally:
@@ -491,6 +496,10 @@ class DataStreamWithEmitters:
                     if auto_task.done() and manual_task.done():
                         break
                     continue
+        except GeneratorExit:
+            # Generator is being closed, log for debugging and re-raise to ensure proper cleanup
+            logging.debug(f"DataStreamWithEmitters.__aiter__: Generator exit for stream {id(self)}")
+            raise
         finally:
             # Send termination marker for protocol output
             if self._output_format == "protocol":
