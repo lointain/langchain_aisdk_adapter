@@ -195,14 +195,22 @@ def stream_text(
             )
         
         # Create input for the runnable
-        runnable_input = {}
-        if messages:
-            runnable_input['messages'] = messages
-        if system:
-            runnable_input['system'] = system
-        
-        # Stream events from the runnable
-        stream = runnable.astream_events(runnable_input, version="v2")
+        if hasattr(runnable, 'bind_tools') or 'ChatOpenAI' in str(type(runnable)):
+            model_input = messages or []
+            if system and messages:
+                # Insert system message at the beginning if not already present
+                from langchain_core.messages import SystemMessage
+                if not any(isinstance(msg, SystemMessage) for msg in messages):
+                    model_input = [SystemMessage(content=system)] + messages
+            stream = runnable.astream_events(model_input, version="v2")
+        else:
+            # LangGraph agent
+            runnable_input = {}
+            if messages:
+                runnable_input['messages'] = messages
+            if system:
+                runnable_input['system'] = system
+            stream = runnable.astream_events(runnable_input, version="v2")
     else:
         # Default behavior: create a simple chain with the model
         if messages is None:
